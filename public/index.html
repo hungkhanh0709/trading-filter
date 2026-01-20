@@ -4,13 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stock Filter - VN30 Tracker</title>
-
-    <!-- Vuetify CSS -->
+    <title>Stock Filter - VN30 Tracker (Matrix View)</title>
     <link href="https://cdn.jsdelivr.net/npm/vuetify@3.5.1/dist/vuetify.min.css" rel="stylesheet">
-    <!-- Material Design Icons -->
     <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" rel="stylesheet">
-
     <style>
         [v-cloak] {
             display: none;
@@ -18,26 +14,58 @@
 
         .stock-symbol {
             font-weight: 600;
-            font-size: 1.1em;
+            font-size: 1.05em;
             font-family: 'Courier New', monospace;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            transition: all 0.2s ease;
+            gap: 6px;
         }
 
         .stock-symbol:hover {
             color: #1976D2;
-            transform: translateX(4px);
         }
 
         .vn30-icon {
             color: #4CAF50;
-            font-size: 1.2em;
+            font-size: 1em;
         }
 
-        .stats-card {
-            margin-bottom: 20px;
+        .matrix-cell {
+            text-align: center;
+            padding: 4px;
+        }
+
+        .status-new {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        .status-normal {
+            color: #2196F3;
+        }
+
+        .status-removed {
+            color: #9E9E9E;
+            text-decoration: line-through;
+        }
+
+        .status-absent {
+            color: #E0E0E0;
+        }
+
+        .date-header {
+            font-weight: 600;
+            font-size: 0.8em;
+            white-space: nowrap;
+            writing-mode: horizontal-tb;
+        }
+
+        .legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-right: 16px;
+            font-size: 0.9em;
         }
     </style>
 </head>
@@ -48,93 +76,63 @@
             <v-app-bar color="primary" density="compact">
                 <v-app-bar-title>
                     <v-icon icon="mdi-chart-line" class="mr-2"></v-icon>
-                    Stock Filter - VN30 Tracker
+                    Stock Filter - Matrix View
                 </v-app-bar-title>
                 <v-spacer></v-spacer>
                 <v-btn icon="mdi-file-import" @click="processRawData" :loading="processing" variant="text"
                     title="Process raw.json"></v-btn>
-                <v-btn icon="mdi-refresh" @click="loadData" :loading="loading" variant="text"
-                    title="Reload data"></v-btn>
+                <v-btn icon="mdi-refresh" @click="loadData" :loading="loading" variant="text" title="Reload"></v-btn>
             </v-app-bar>
 
             <v-main>
                 <v-container fluid>
-                    <!-- Stats Cards with Date Selector -->
-                    <v-row class="stats-card">
-                        <v-col cols="12" sm="6" md="4">
-                            <v-card>
-                                <v-card-text>
-                                    <div class="text-overline mb-1">Ngày</div>
-                                    <v-select v-model="selectedDate" :items="availableDates" item-title="label"
-                                        item-value="date" density="compact" variant="solo" hide-details
-                                        @update:model-value="onDateChange"></v-select>
-                                </v-card-text>
-                            </v-card>
-                        </v-col>
-                        <v-col cols="12" sm="6" md="4">
-                            <v-card color="blue-lighten-5">
-                                <v-card-text>
-                                    <div class="text-overline mb-1">Kết quả</div>
-                                    <div class="text-h6">{{ stockData.totalStocks || 0 }} mã</div>
-                                </v-card-text>
-                            </v-card>
-                        </v-col>
-                        <v-col cols="12" sm="6" md="4">
-                            <v-card color="green-lighten-5">
-                                <v-card-text>
-                                    <div class="text-overline mb-1">Mã VN30</div>
-                                    <div class="text-h6">
-                                        {{ stockData.vn30Count || 0 }}
-                                        <span class="text-body-2" v-if="stockData.totalStocks > 0">
-                                            ({{ Math.round((stockData.vn30Count / stockData.totalStocks) * 100) }}%)
-                                        </span>
-                                    </div>
-                                </v-card-text>
-                            </v-card>
-                        </v-col>
-                    </v-row>
-
-                    <!-- Stocks Table -->
+                    <!-- Matrix Table -->
                     <v-card>
                         <v-card-title>
-                            Danh sách mã cổ phiếu
-                            <v-spacer></v-spacer>
+                            Lịch sử theo ngày ({{ matrixData.stats.totalDates || 0 }} ngày gần nhất)
                         </v-card-title>
 
-                        <v-data-table :headers="headers" :items="stockData.stocks || []" :loading="loading"
-                            :items-per-page="50" class="elevation-1" :search="search" density="comfortable">
-                            <!-- Search -->
+                        <v-data-table :headers="matrixHeaders" :items="matrixData.symbols || []" :items-per-page="100"
+                            class="elevation-1" density="compact" :search="search">
                             <template v-slot:top>
                                 <v-text-field v-model="search" label="Tìm kiếm mã" prepend-inner-icon="mdi-magnify"
                                     variant="outlined" hide-details single-line class="ma-4"
                                     density="compact"></v-text-field>
                             </template>
 
-                            <!-- Symbol Column with VN30 Icon and TradingView Link -->
+                            <!-- Symbol Column -->
                             <template v-slot:item.symbol="{ item }">
                                 <a :href="item.tradingViewUrl" target="_blank" class="stock-symbol"
                                     style="text-decoration: none; color: inherit;">
                                     {{ item.symbol }}
                                     <v-icon v-if="item.isVN30" icon="mdi-star" class="vn30-icon" title="VN30"></v-icon>
-                                    <v-icon icon="mdi-chart-candlestick" size="small"
-                                        style="opacity: 0.6; margin-left: 4px;" title="Xem TradingView"></v-icon>
                                 </a>
+                            </template>
+
+                            <!-- Date Columns -->
+                            <template v-for="(date, index) in matrixData.dates" :key="date.date"
+                                v-slot:[`item.day${index}`]="{ item }">
+                                <div class="matrix-cell">
+                                    <v-icon v-if="item.days[index].status === 'new'" icon="mdi-checkbox-marked-circle"
+                                        class="status-new" title="Mới"></v-icon>
+                                    <v-icon v-else-if="item.days[index].status === 'normal'" icon="mdi-checkbox-marked"
+                                        class="status-normal" title="Bình thường"></v-icon>
+                                    <v-icon v-else-if="item.days[index].status === 'removed'" icon="mdi-close-circle"
+                                        class="status-removed" title="Sắp loại"></v-icon>
+                                    <v-icon v-else icon="mdi-minus" class="status-absent" title="Không có"></v-icon>
+                                </div>
                             </template>
                         </v-data-table>
                     </v-card>
 
-                    <!-- Loading Overlay -->
                     <v-overlay :model-value="loading" class="align-center justify-center">
                         <v-progress-circular indeterminate size="64" color="primary"></v-progress-circular>
                     </v-overlay>
 
-                    <!-- Error Snackbar -->
                     <v-snackbar v-model="errorSnackbar" color="error" timeout="5000">
                         {{ errorMessage }}
                         <template v-slot:actions>
-                            <v-btn variant="text" @click="errorSnackbar = false">
-                                Đóng
-                            </v-btn>
+                            <v-btn variant="text" @click="errorSnackbar = false">Đóng</v-btn>
                         </template>
                     </v-snackbar>
                 </v-container>
@@ -142,11 +140,8 @@
         </v-app>
     </div>
 
-    <!-- Vue 3 -->
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.15/dist/vue.global.prod.js"></script>
-    <!-- Vuetify -->
     <script src="https://cdn.jsdelivr.net/npm/vuetify@3.5.1/dist/vuetify.min.js"></script>
-
     <script>
         const { createApp } = Vue;
         const { createVuetify } = Vuetify;
@@ -175,22 +170,41 @@
                 return {
                     loading: false,
                     processing: false,
-                    stockData: {},
+                    matrixData: {
+                        dates: [],
+                        symbols: [],
+                        stats: {}
+                    },
                     search: '',
-                    headers: [
+                    errorSnackbar: false,
+                    errorMessage: '',
+                };
+            },
+            computed: {
+                matrixHeaders() {
+                    const headers = [
                         {
                             title: 'Mã CK',
                             key: 'symbol',
                             align: 'start',
                             sortable: true,
-                        },
-                    ],
-                    selectedDate: null,
-                    availableDates: [],
-                    allDatesData: [],
-                    errorSnackbar: false,
-                    errorMessage: '',
-                };
+                            width: '120px'
+                        }
+                    ];
+
+                    // Add date columns
+                    this.matrixData.dates.forEach((date, index) => {
+                        headers.push({
+                            title: `${date.dateFormatted} (${date.vn30Count}/${date.count})`,
+                            key: `day${index}`,
+                            align: 'center',
+                            sortable: false,
+                            width: '120px'
+                        });
+                    });
+
+                    return headers;
+                }
             },
             mounted() {
                 this.loadData();
@@ -201,25 +215,12 @@
                     this.errorSnackbar = false;
 
                     try {
-                        const response = await fetch('/api/stocks');
+                        const response = await fetch('/api/stocks/matrix');
                         const result = await response.json();
 
                         if (result.success) {
-                            this.stockData = result.data;
-
-                            // Build available dates list
-                            if (result.allDates && result.allDates.length > 0) {
-                                this.availableDates = result.allDates.map(d => ({
-                                    date: d.date,
-                                    label: `${d.dateFormatted} (${d.count} mã)`,
-                                    data: d
-                                }));
-
-                                // Set selected date to latest
-                                this.selectedDate = this.availableDates[0].date;
-                            }
-
-                            console.log('✅ Loaded', this.stockData.totalStocks, 'stocks');
+                            this.matrixData = result.data;
+                            console.log('✅ Loaded matrix:', result.data.stats);
                         } else {
                             throw new Error(result.error || 'Failed to load data');
                         }
@@ -232,43 +233,17 @@
                     }
                 },
 
-                async onDateChange(date) {
-                    if (!date) return;
-
-                    this.loading = true;
-                    try {
-                        const response = await fetch(`/api/stocks/${date}`);
-                        const result = await response.json();
-
-                        if (result.success) {
-                            this.stockData = result.data;
-                            console.log('✅ Loaded data for', date);
-                        } else {
-                            throw new Error(result.error || 'Failed to load data');
-                        }
-                    } catch (error) {
-                        console.error('❌ Error loading date data:', error);
-                        this.errorMessage = 'Không thể tải dữ liệu ngày: ' + error.message;
-                        this.errorSnackbar = true;
-                    } finally {
-                        this.loading = false;
-                    }
-                },
-
                 async processRawData() {
                     this.processing = true;
                     try {
                         const response = await fetch('/api/process-raw', {
                             method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            }
+                            headers: { 'Content-Type': 'application/json' }
                         });
                         const result = await response.json();
 
                         if (result.success) {
                             console.log('✅ Processed raw.json:', result);
-                            // Reload data after processing
                             await this.loadData();
                         } else {
                             throw new Error(result.message || result.error || 'Failed to process');

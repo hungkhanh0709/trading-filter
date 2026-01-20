@@ -5,6 +5,7 @@ const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const MAX_DAYS = 10; // Maximum number of days to display in matrix view
 
 // File paths
 const RAW_FILE = path.join(__dirname, 'data', 'raw.json');
@@ -259,6 +260,122 @@ app.get('/api/stocks', (req, res) => {
                 dateFormatted: r.dateFormatted,
                 count: r.totalStocks
             }))
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * GET /api/stocks/matrix
+ * Returns matrix view of stocks across multiple dates
+ * Shows NEW/NORMAL/REMOVED/ABSENT status for each symbol
+ */
+app.get('/api/stocks/matrix', (req, res) => {
+    try {
+        const results = loadFilterResults();
+
+        // Get latest N dates
+        const latestDates = results.slice(0, MAX_DAYS);
+
+        if (latestDates.length === 0) {
+            return res.json({
+                success: true,
+                data: {
+                    dates: [],
+                    symbols: [],
+                    stats: {
+                        totalSymbols: 0,
+                        totalDates: 0,
+                        vn30Count: 0
+                    }
+                }
+            });
+        }
+
+        // Collect all unique symbols across all dates
+        const allSymbolsSet = new Set();
+        const dateSymbolsMap = {}; // { '20260120': Set(['ACB', 'BID', ...]) }
+
+        latestDates.forEach(dateData => {
+            const symbols = new Set(dateData.stocks.map(s => s.symbol));
+            dateSymbolsMap[dateData.date] = symbols;
+            symbols.forEach(sym => allSymbolsSet.add(sym));
+        });
+
+        // Build matrix data
+        const allSymbols = Array.from(allSymbolsSet).sort();
+        const matrixData = allSymbols.map(symbol => {
+            // Check if VN30
+            const isVN30 = vn30List.includes(symbol);
+
+            // Build day status for each date
+            const days = latestDates.map((dateData, index) => {
+                const hasSymbol = dateSymbolsMap[dateData.date].has(symbol);
+
+                // Determine status
+                let status = 'absent'; // default
+
+                if (hasSymbol) {
+                    // Only mark as NEW if it's the FIRST date (most recent) AND not in second date
+                    if (index === 0) {
+                        const hasInSecondDate = latestDates.length > 1 ? dateSymbolsMap[latestDates[1].date].has(symbol) : false;
+                        status = hasInSecondDate ? 'normal' : 'new';
+                    } else {
+                        // For older dates, just mark as normal
+                        status = 'normal';
+                    }
+                }
+
+                return {
+                    date: dateData.date,
+                    dateFormatted: dateData.dateFormatted,
+                    hasSymbol,
+                    status
+                };
+            });
+
+            // Generate TradingView URL
+            const tradingViewUrl = `https://vn.tradingview.com/chart/27IsBTqc/?symbol=HOSE%3A${symbol}`;
+
+            return {
+                symbol,
+                isVN30,
+                tradingViewUrl,
+                days
+            };
+        });
+
+        // Calculate stats
+        const stats = {
+            totalSymbols: allSymbols.length,
+            totalDates: latestDates.length,
+            vn30Count: matrixData.filter(s => s.isVN30).length,
+            latestDate: latestDates[0].dateFormatted,
+            // Additional stats
+            newSymbols: matrixData.filter(s => s.days[0].status === 'new').length,
+            removedSymbols: matrixData.filter(s => s.days.some(d => d.status === 'removed')).length
+        };
+
+        res.json({
+            success: true,
+            data: {
+                dates: latestDates.map(d => {
+                    const dateSymbols = d.stocks.map(s => s.symbol);
+                    const vn30CountForDate = dateSymbols.filter(sym => vn30List.includes(sym)).length;
+                    return {
+                        date: d.date,
+                        dateFormatted: d.dateFormatted,
+                        count: d.totalStocks,
+                        vn30Count: vn30CountForDate
+                    };
+                }),
+                symbols: matrixData,
+                stats
+            }
         });
     } catch (error) {
         res.status(500).json({
