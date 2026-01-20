@@ -1,0 +1,22 @@
+{
+    "name": "trading-filter",
+    "version": "2.0.0",
+    "description": "Simple stock filter viewer with VN30 labeling",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js",
+        "dev": "node server.js"
+    },
+    "keywords": [
+        "stock",
+        "trading",
+        "vn30",
+        "tradingview"
+    ],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "express": "^4.18.2",
+        "cors": "^2.8.5"
+    }
+}
