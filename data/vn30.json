@@ -5,7 +5,6 @@
     "effectiveDate": "2026-01-01",
     "symbols": [
         "ACB",
-        "BCM",
         "BID",
         "CTG",
         "DGC",
@@ -33,6 +32,18 @@
         "VJC",
         "VNM",
         "VPB",
-        "VRE"
+        "VRE",
+        "VPL"
+    ],
+    "history": [
+        {
+            "date": "20260121",
+            "removed": [
+                "BCM"
+            ],
+            "added": [
+                "VPL"
+            ]
+        }
     ]
 }
