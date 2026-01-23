@@ -98,26 +98,25 @@ function processRawData() {
         }
 
         // Find existing entry for today
-        const existingIndex = dataArray.findIndex(item => item.data === currentDate);
+        const existingIndex = dataArray.findIndex(item => item.date === currentDate);
 
         if (existingIndex >= 0) {
-            // Merge with existing entry
-            const existingSymbols = dataArray[existingIndex].result.split(',').map(s => s.trim());
-            const mergedSymbols = [...new Set([...existingSymbols, ...rawSymbols])];
-            dataArray[existingIndex].result = mergedSymbols.sort().join(',');
-            console.log(`🔄 Updated ${currentDate}: ${mergedSymbols.length} symbols (merged)`);
+            // Replace existing entry (not merge)
+            const uniqueSymbols = [...new Set(rawSymbols)].sort();
+            dataArray[existingIndex].result = uniqueSymbols.join(',');
+            console.log(`🔄 Replaced ${currentDate}: ${uniqueSymbols.length} symbols`);
         } else {
             // Add new entry
             const uniqueSymbols = [...new Set(rawSymbols)].sort();
             dataArray.unshift({
-                data: currentDate,
+                date: currentDate,
                 result: uniqueSymbols.join(',')
             });
             console.log(`➕ Added ${currentDate}: ${uniqueSymbols.length} symbols (new)`);
         }
 
         // Sort by date descending
-        dataArray.sort((a, b) => b.data.localeCompare(a.data));
+        dataArray.sort((a, b) => b.date.localeCompare(a.date));
 
         // Write back to data.json
         fs.writeFileSync(DATA_FILE, JSON.stringify(dataArray, null, 2), 'utf8');
@@ -143,7 +142,7 @@ function processRawData() {
  * - Generate TradingView URLs
  */
 function processFilterData(rawData) {
-    const dateStr = rawData.data;
+    const dateStr = rawData.date;
     const symbols = rawData.result.split(',').map(s => s.trim()).filter(s => s);
 
     // Deduplicate symbols
@@ -205,7 +204,7 @@ function loadFilterResults() {
         const byDate = {};
 
         dataArray.forEach(entry => {
-            const dateStr = entry.data;
+            const dateStr = entry.date;
             if (!byDate[dateStr]) {
                 byDate[dateStr] = new Set();
             }
@@ -218,7 +217,7 @@ function loadFilterResults() {
         // Convert back to format and process
         const results = Object.entries(byDate).map(([dateStr, symbolsSet]) => {
             return processFilterData({
-                data: dateStr,
+                date: dateStr,
                 result: Array.from(symbolsSet).join(',')
             });
         });

@@ -100,6 +100,16 @@
                                     density="compact"></v-text-field>
                             </template>
 
+                            <!-- Custom Date Headers -->
+                            <template v-for="(date, index) in matrixData.dates" :key="`header-${index}`"
+                                v-slot:[`header.day${index}`]>
+                                <div style="text-align: center; line-height: 1.2;">
+                                    <div>{{ date.dateFormatted }}</div>
+                                    <div style="font-size: 0.85em; color: #666;">({{ date.vn30Count }}/{{ date.count }})
+                                    </div>
+                                </div>
+                            </template>
+
                             <!-- Symbol Column -->
                             <template v-slot:item.symbol="{ item }">
                                 <a :href="item.tradingViewUrl" target="_blank" class="stock-symbol"
@@ -195,7 +205,7 @@
                     // Add date columns
                     this.matrixData.dates.forEach((date, index) => {
                         headers.push({
-                            title: `${date.dateFormatted} (${date.vn30Count}/${date.count})`,
+                            title: date.dateFormatted,
                             key: `day${index}`,
                             align: 'center',
                             sortable: false,
