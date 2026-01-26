@@ -2,6 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const { exec, spawn } = require('child_process');
+const util = require('util');
+const execPromise = util.promisify(exec);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,6 +14,15 @@ const MAX_DAYS = 10; // Maximum number of days to display in matrix view
 const RAW_FILE = path.join(__dirname, 'data', 'raw.json');
 const DATA_FILE = path.join(__dirname, 'data', 'data.json');
 const VN30_FILE = path.join(__dirname, 'data', 'vn30.json');
+const PYTHON_VENV = path.join(__dirname, '.venv', 'bin', 'python');
+const FETCH_PRICES_SCRIPT = path.join(__dirname, 'fetch_prices.py');
+
+// Price cache
+let priceCache = {
+    data: {},
+    timestamp: 0,
+    ttl: 15 * 60 * 1000 // Cache for 15 minutes (tăng từ 5 phút)
+};
 
 // Middleware
 app.use(cors());
@@ -272,8 +284,9 @@ app.get('/api/stocks', (req, res) => {
  * GET /api/stocks/matrix
  * Returns matrix view of stocks across multiple dates
  * Shows NEW/NORMAL/REMOVED/ABSENT status for each symbol
+ * Includes current price and percent change for each symbol
  */
-app.get('/api/stocks/matrix', (req, res) => {
+app.get('/api/stocks/matrix', async (req, res) => {
     try {
         const results = loadFilterResults();
 
@@ -305,8 +318,11 @@ app.get('/api/stocks/matrix', (req, res) => {
             symbols.forEach(sym => allSymbolsSet.add(sym));
         });
 
-        // Build matrix data
+        // Get all symbols (don't fetch prices here - let frontend do it separately)
         const allSymbols = Array.from(allSymbolsSet).sort();
+        const priceData = {}; // Empty - prices will be fetched separately by frontend
+
+        // Build matrix data
         const matrixData = allSymbols.map(symbol => {
             // Check if VN30
             const isVN30 = vn30List.includes(symbol);
@@ -340,11 +356,17 @@ app.get('/api/stocks/matrix', (req, res) => {
             // Generate TradingView URL
             const tradingViewUrl = `https://vn.tradingview.com/chart/27IsBTqc/?symbol=HOSE%3A${symbol}`;
 
+            // Get price data
+            const symbolPrice = priceData[symbol] || {};
+
             return {
                 symbol,
                 isVN30,
                 tradingViewUrl,
-                days
+                days,
+                price: symbolPrice.price || null,
+                changePercent: symbolPrice.changePercent || null,
+                priceError: symbolPrice.error || null
             };
         });
 
@@ -375,6 +397,42 @@ app.get('/api/stocks/matrix', (req, res) => {
                 symbols: matrixData,
                 stats
             }
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * GET /api/stocks/prices
+ * Get current prices for symbols
+ */
+app.get('/api/stocks/prices', async (req, res) => {
+    try {
+        const symbols = req.query.symbols ? req.query.symbols.split(',') : [];
+        const forceRefresh = req.query.force === '1';
+
+        if (symbols.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'No symbols provided. Use ?symbols=ACB,HPG,VNM'
+            });
+        }
+
+        // Clear cache if force refresh
+        if (forceRefresh) {
+            console.log('🔄 Force refresh - clearing price cache');
+            priceCache.timestamp = 0;
+        }
+
+        const prices = await fetchStockPrices(symbols);
+
+        res.json({
+            success: true,
+            data: prices
         });
     } catch (error) {
         res.status(500).json({
@@ -423,6 +481,92 @@ app.get('/api/vn30', (req, res) => {
         data: vn30List
     });
 });
+
+/**
+ * Fetch stock prices using Python vnstock script
+ * @param {Array<string>} symbols - Stock symbols
+ * @returns {Promise<Object>} Price data for each symbol
+ */
+async function fetchStockPrices(symbols) {
+    // Check cache
+    const now = Date.now();
+    if (now - priceCache.timestamp < priceCache.ttl) {
+        // Return cached data if available
+        const cachedResults = {};
+        let allCached = true;
+        for (const symbol of symbols) {
+            if (priceCache.data[symbol]) {
+                cachedResults[symbol] = priceCache.data[symbol];
+            } else {
+                allCached = false;
+                break;
+            }
+        }
+        if (allCached) {
+            console.log('📦 Using cached price data');
+            return cachedResults;
+        }
+    }
+
+    return new Promise((resolve, reject) => {
+        const args = [FETCH_PRICES_SCRIPT, ...symbols];
+        console.log(`🐍 Fetching prices for ${symbols.length} symbols (this may take ~${Math.ceil(symbols.length * 3.5 / 60)} minutes)...`);
+
+        const pythonProcess = spawn(PYTHON_VENV, args);
+
+        let stdout = '';
+        let stderr = '';
+
+        pythonProcess.stdout.on('data', (data) => {
+            stdout += data.toString();
+        });
+
+        pythonProcess.stderr.on('data', (data) => {
+            const line = data.toString().trim();
+            if (line) {
+                console.log(line); // Real-time progress logging
+            }
+            stderr += data.toString();
+        });
+
+        pythonProcess.on('close', (code) => {
+            if (code !== 0) {
+                console.error('❌ Python script failed with code:', code);
+                console.error('stderr:', stderr);
+                return reject(new Error(`Python script failed with code ${code}`));
+            }
+
+            try {
+                // Parse JSON from stdout
+                const lines = stdout.split('\n');
+                const jsonLine = lines.find(line => line.trim().startsWith('{'));
+
+                if (!jsonLine) {
+                    console.error('❌ No JSON output from Python script');
+                    console.error('stdout:', stdout);
+                    return resolve({});
+                }
+
+                const results = JSON.parse(jsonLine);
+
+                // Update cache
+                priceCache.data = { ...priceCache.data, ...results };
+                priceCache.timestamp = now;
+
+                console.log(`✅ Fetched prices for ${Object.keys(results).length} symbols`);
+                resolve(results);
+            } catch (error) {
+                console.error('❌ Error parsing Python output:', error.message);
+                reject(error);
+            }
+        });
+
+        pythonProcess.on('error', (error) => {
+            console.error('❌ Failed to start Python process:', error);
+            reject(error);
+        });
+    });
+}
 
 /**
  * POST /api/process-raw

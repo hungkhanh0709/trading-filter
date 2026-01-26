@@ -67,6 +67,27 @@
             margin-right: 16px;
             font-size: 0.9em;
         }
+
+        .price-cell {
+            font-family: 'Courier New', monospace;
+            font-size: 0.95em;
+            text-align: right;
+        }
+
+        .change-positive {
+            color: #4CAF50;
+            font-weight: 600;
+        }
+
+        .change-negative {
+            color: #F44336;
+            font-weight: 600;
+        }
+
+        .change-neutral {
+            color: #FFA726;
+            font-weight: 600;
+        }
     </style>
 </head>
 
@@ -79,6 +100,8 @@
                     Stock Filter - Matrix View
                 </v-app-bar-title>
                 <v-spacer></v-spacer>
+                <v-btn icon="mdi-cash-sync" @click="loadPrices(true)" :loading="loadingPrices" variant="text"
+                    title="Refresh Prices"></v-btn>
                 <v-btn icon="mdi-file-import" @click="processRawData" :loading="processing" variant="text"
                     title="Process raw.json"></v-btn>
                 <v-btn icon="mdi-refresh" @click="loadData" :loading="loading" variant="text" title="Reload"></v-btn>
@@ -117,6 +140,13 @@
                                     {{ item.symbol }}
                                     <v-icon v-if="item.isVN30" icon="mdi-star" class="vn30-icon" title="VN30"></v-icon>
                                 </a>
+                            </template>
+
+                            <!-- Price Change Column -->
+                            <template v-slot:item.price="{ item }">
+                                <div class="price-cell" :class="getChangeClass(item.changePercent)">
+                                    {{ formatPriceChange(item.price, item.changePercent) }}
+                                </div>
                             </template>
 
                             <!-- Date Columns -->
@@ -179,6 +209,7 @@
             data() {
                 return {
                     loading: false,
+                    loadingPrices: false,
                     processing: false,
                     matrixData: {
                         dates: [],
@@ -199,6 +230,13 @@
                             align: 'start',
                             sortable: true,
                             width: '120px'
+                        },
+                        {
+                            title: 'Thay đổi',
+                            key: 'price',
+                            align: 'end',
+                            sortable: true,
+                            width: '150px'
                         }
                     ];
 
@@ -217,9 +255,27 @@
                 }
             },
             mounted() {
-                this.loadData();
+                this.loadData().then(() => {
+                    this.loadPrices();
+                });
             },
             methods: {
+                formatPriceChange(price, changePercent) {
+                    if (price === null || price === undefined) return '-';
+                    const priceInK = (price / 1000).toFixed(1);
+                    if (changePercent === null || changePercent === undefined) {
+                        return `${priceInK}`;
+                    }
+                    const sign = changePercent > 0 ? '+' : '';
+                    const percent = Math.abs(changePercent) < 10 ? changePercent.toFixed(1) : Math.round(changePercent);
+                    return `${priceInK} (${sign}${percent}%)`;
+                },
+                getChangeClass(change) {
+                    if (change === null || change === undefined) return 'change-neutral';
+                    if (change > 0) return 'change-positive';
+                    if (change < 0) return 'change-negative';
+                    return 'change-neutral';
+                },
                 async loadData() {
                     this.loading = true;
                     this.errorSnackbar = false;
@@ -230,7 +286,6 @@
 
                         if (result.success) {
                             this.matrixData = result.data;
-                            console.log('✅ Loaded matrix:', result.data.stats);
                         } else {
                             throw new Error(result.error || 'Failed to load data');
                         }
@@ -240,6 +295,39 @@
                         this.errorSnackbar = true;
                     } finally {
                         this.loading = false;
+                    }
+                },
+
+                async loadPrices(forceRefresh = false) {
+                    if (!this.matrixData || !this.matrixData.symbols) return;
+
+                    this.loadingPrices = true;
+                    const action = forceRefresh ? 'Refreshing' : 'Fetching';
+                    console.log(`💰 ${action} prices in background...`);
+                    const symbols = this.matrixData.symbols.map(s => s.symbol).join(',');
+                    const url = `/api/stocks/prices?symbols=${symbols}${forceRefresh ? '&force=1' : ''}`;
+
+                    try {
+                        const response = await fetch(url);
+                        const result = await response.json();
+
+                        if (result.success) {
+                            // Update prices in matrixData
+                            this.matrixData.symbols.forEach(symbol => {
+                                const priceInfo = result.data[symbol.symbol];
+                                if (priceInfo) {
+                                    symbol.price = priceInfo.price;
+                                    symbol.changePercent = priceInfo.changePercent;
+                                    symbol.priceError = priceInfo.error;
+                                }
+                            });
+                            console.log('✅ Prices updated successfully');
+                        }
+                    } catch (error) {
+                        console.log('⚠️ Could not load prices:', error.message);
+                        // Don't show error to user - prices are optional
+                    } finally {
+                        this.loadingPrices = false;
                     }
                 },
 
