@@ -10,6 +10,14 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MAX_DAYS = 10; // Maximum number of days to display in matrix view
 
+// Supported exchanges
+const EXCHANGES = ['HOSE', 'HNX'];
+
+// TradingView URL helper
+const getTradingViewUrl = (exchange, symbol) => {
+    return `https://vn.tradingview.com/chart/27IsBTqc/?symbol=${exchange}%3A${symbol}`;
+};
+
 // File paths
 const RAW_FILE = path.join(__dirname, 'data', 'raw.json');
 const DATA_FILE = path.join(__dirname, 'data', 'data.json');
@@ -21,7 +29,8 @@ const FETCH_PRICES_SCRIPT = path.join(__dirname, 'fetch_prices.py');
 let priceCache = {
     data: {},
     timestamp: 0,
-    ttl: 15 * 60 * 1000 // Cache for 15 minutes (tăng từ 5 phút)
+    // Cache for 15 minutes
+    ttl: 15 * 60 * 1000
 };
 
 // Middleware
@@ -76,31 +85,23 @@ function formatDate(date) {
 }
 
 /**
- * Process raw.json and append to data.json
+ * Process raw.json and append to data.json, format: {date, HOSE: "...", HNX: "..."}
  * - Read raw.json
  * - Get current date
  * - Read data.json
- * - Check if date exists, merge or add new
+ * - Update or create entry for today
  * - Write back to data.json
  */
 function processRawData() {
     try {
+        const currentDate = getCurrentDate();
+
         // Read raw.json
         if (!fs.existsSync(RAW_FILE)) {
             console.log('ℹ️  raw.json not found, skipping process');
             return { success: false, message: 'raw.json not found' };
         }
-
         const rawData = JSON.parse(fs.readFileSync(RAW_FILE, 'utf8'));
-        const rawSymbols = (rawData.symbols || rawData.result || '').split(',').map(s => s.trim()).filter(s => s);
-
-        if (rawSymbols.length === 0) {
-            console.log('ℹ️  No symbols in raw.json');
-            return { success: false, message: 'No symbols in raw.json' };
-        }
-
-        // Get current date
-        const currentDate = getCurrentDate();
 
         // Read existing data.json
         let dataArray = [];
@@ -109,22 +110,38 @@ function processRawData() {
             dataArray = Array.isArray(existingData) ? existingData : [existingData];
         }
 
-        // Find existing entry for today
-        const existingIndex = dataArray.findIndex(item => item.date === currentDate);
+        // Find or create entry for today
+        let todayEntry = dataArray.find(item => item.date === currentDate);
+        let isNew = false;
 
-        if (existingIndex >= 0) {
-            // Replace existing entry (not merge)
-            const uniqueSymbols = [...new Set(rawSymbols)].sort();
-            dataArray[existingIndex].result = uniqueSymbols.join(',');
-            console.log(`🔄 Replaced ${currentDate}: ${uniqueSymbols.length} symbols`);
-        } else {
-            // Add new entry
-            const uniqueSymbols = [...new Set(rawSymbols)].sort();
-            dataArray.unshift({
-                date: currentDate,
-                result: uniqueSymbols.join(',')
-            });
-            console.log(`➕ Added ${currentDate}: ${uniqueSymbols.length} symbols (new)`);
+        if (!todayEntry) {
+            todayEntry = { date: currentDate };
+            dataArray.unshift(todayEntry);
+            isNew = true;
+        }
+
+        // Process each exchange
+        const results = [];
+        EXCHANGES.forEach(exchange => {
+            const symbolsStr = rawData[exchange] || '';
+
+            if (symbolsStr && symbolsStr.trim() !== '') {
+                const rawSymbols = symbolsStr.split(',').map(s => s.trim()).filter(s => s);
+                const uniqueSymbols = [...new Set(rawSymbols)].sort();
+                todayEntry[exchange] = uniqueSymbols.join(',');
+
+                const action = isNew ? 'added' : 'replaced';
+                console.log(`${isNew ? '➕' : '🔄'} ${action.charAt(0).toUpperCase() + action.slice(1)} ${currentDate} [${exchange}]: ${uniqueSymbols.length} symbols`);
+                results.push({ exchange, action, count: uniqueSymbols.length });
+            } else {
+                // Set empty string if no symbols
+                todayEntry[exchange] = '';
+            }
+        });
+
+        if (results.length === 0) {
+            console.log('ℹ️  No symbols to process');
+            return { success: false, message: 'No symbols in raw.json' };
         }
 
         // Sort by date descending
@@ -136,7 +153,7 @@ function processRawData() {
         return {
             success: true,
             date: currentDate,
-            symbolCount: dataArray[0].result.split(',').length,
+            results: results,
             totalDates: dataArray.length
         };
     } catch (error) {
@@ -146,58 +163,54 @@ function processRawData() {
 }
 
 /**
- * Process filter result data
+ * Process filter result data, format: {date, HOSE: "...", HNX: "..."}
  * - Parse date
+ * - Process each exchange
  * - Split symbols
  * - Deduplicate
  * - Add VN30 flag
  * - Generate TradingView URLs
  */
-function processFilterData(rawData) {
-    const dateStr = rawData.date;
-    const symbols = rawData.result.split(',').map(s => s.trim()).filter(s => s);
-
-    // Deduplicate symbols
-    const uniqueSymbols = [...new Set(symbols)];
-
-    // Parse date
+function processFilterData(entry) {
+    const dateStr = entry.date;
     const date = parseDate(dateStr);
     const formattedDate = formatDate(date);
 
-    // Process each symbol
-    const stocks = uniqueSymbols.map(symbol => {
-        const isVN30 = vn30List.includes(symbol);
-        const tradingViewUrl = `https://vn.tradingview.com/chart/27IsBTqc/?symbol=HOSE%3A${symbol}`;
+    const allStocks = [];
 
-        return {
-            symbol,
-            isVN30,
-            tradingViewUrl,
-            date: dateStr,
-            dateFormatted: formattedDate
-        };
-    });
+    // Process each exchange
+    EXCHANGES.forEach(exchange => {
+        const symbolsStr = entry[exchange] || '';
+        if (!symbolsStr || symbolsStr.trim() === '') return;
 
-    // Sort: VN30 first, then alphabetically
-    stocks.sort((a, b) => {
-        if (a.isVN30 !== b.isVN30) {
-            return a.isVN30 ? -1 : 1;
-        }
-        return a.symbol.localeCompare(b.symbol);
+        const symbols = symbolsStr.split(',').map(s => s.trim()).filter(s => s);
+        const uniqueSymbols = [...new Set(symbols)];
+
+        uniqueSymbols.forEach(symbol => {
+            const isVN30 = vn30List.includes(symbol);
+            const tradingViewUrl = getTradingViewUrl(exchange, symbol);
+            allStocks.push({
+                symbol,
+                exchange,
+                isVN30,
+                tradingViewUrl,
+                date: dateStr,
+                dateFormatted: formattedDate
+            });
+        });
     });
 
     return {
         date: dateStr,
         dateFormatted: formattedDate,
-        totalStocks: stocks.length,
-        vn30Count: stocks.filter(s => s.isVN30).length,
-        stocks
+        totalStocks: allStocks.length,
+        vn30Count: allStocks.filter(s => s.isVN30).length,
+        stocks: allStocks
     };
 }
 
 /**
- * Load and process data from data.json
- * Supports both single object and array of objects
+ * Load and process data from data.json, format: {date, HOSE: "...", HNX: "..."}
  */
 function loadFilterResults() {
     try {
@@ -212,27 +225,8 @@ function loadFilterResults() {
         // Support both single object and array
         const dataArray = Array.isArray(rawData) ? rawData : [rawData];
 
-        // Group by date and deduplicate
-        const byDate = {};
-
-        dataArray.forEach(entry => {
-            const dateStr = entry.date;
-            if (!byDate[dateStr]) {
-                byDate[dateStr] = new Set();
-            }
-
-            // Add symbols to set (auto-deduplicates)
-            const symbols = entry.result.split(',').map(s => s.trim()).filter(s => s);
-            symbols.forEach(symbol => byDate[dateStr].add(symbol));
-        });
-
-        // Convert back to format and process
-        const results = Object.entries(byDate).map(([dateStr, symbolsSet]) => {
-            return processFilterData({
-                date: dateStr,
-                result: Array.from(symbolsSet).join(',')
-            });
-        });
+        // Process each entry with new format
+        const results = dataArray.map(entry => processFilterData(entry));
 
         // Sort by date descending (newest first)
         results.sort((a, b) => b.date.localeCompare(a.date));
@@ -243,8 +237,6 @@ function loadFilterResults() {
         return [];
     }
 }
-
-// API Endpoints
 
 /**
  * GET /api/stocks
@@ -288,7 +280,16 @@ app.get('/api/stocks', (req, res) => {
  */
 app.get('/api/stocks/matrix', async (req, res) => {
     try {
-        const results = loadFilterResults();
+        const exchangeFilter = req.query.exchange || 'ALL'; // ALL, HOSE, or HNX
+        const allResults = loadFilterResults();
+
+        // Filter by exchange if specified
+        const results = exchangeFilter === 'ALL'
+            ? allResults
+            : allResults.map(dateData => ({
+                ...dateData,
+                stocks: dateData.stocks.filter(s => s.exchange === exchangeFilter)
+            }));
 
         // Get latest N dates
         const latestDates = results.slice(0, MAX_DAYS);
@@ -324,6 +325,16 @@ app.get('/api/stocks/matrix', async (req, res) => {
 
         // Build matrix data
         const matrixData = allSymbols.map(symbol => {
+            // Find exchange from stocks data
+            let exchange = 'HOSE';
+            for (const dateData of latestDates) {
+                const stock = dateData.stocks.find(s => s.symbol === symbol);
+                if (stock && stock.exchange) {
+                    exchange = stock.exchange;
+                    break;
+                }
+            }
+
             // Check if VN30
             const isVN30 = vn30List.includes(symbol);
 
@@ -354,13 +365,14 @@ app.get('/api/stocks/matrix', async (req, res) => {
             });
 
             // Generate TradingView URL
-            const tradingViewUrl = `https://vn.tradingview.com/chart/27IsBTqc/?symbol=HOSE%3A${symbol}`;
+            const tradingViewUrl = getTradingViewUrl(exchange, symbol);
 
             // Get price data
             const symbolPrice = priceData[symbol] || {};
 
             return {
                 symbol,
+                exchange,
                 isVN30,
                 tradingViewUrl,
                 days,
@@ -574,8 +586,7 @@ async function fetchStockPrices(symbols) {
  */
 app.post('/api/process-raw', (req, res) => {
     try {
-        const result = processRawData();
-        res.json(result);
+        res.json(processRawData());
     } catch (error) {
         res.status(500).json({
             success: false,

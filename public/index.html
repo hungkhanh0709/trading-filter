@@ -71,7 +71,7 @@
         .price-cell {
             font-family: 'Courier New', monospace;
             font-size: 0.95em;
-            text-align: right;
+            text-align: center;
         }
 
         .change-positive {
@@ -112,25 +112,15 @@
                     <!-- Matrix Table -->
                     <v-card>
                         <v-card-title>
-                            Lịch sử theo ngày ({{ matrixData.stats.totalDates || 0 }} ngày gần nhất)
+                            Lịch sử {{ matrixData.stats.totalDates || 0 }} ngày gần nhất
                         </v-card-title>
 
-                        <!-- Price Statistics -->
-                        <div v-if="priceStats.total > 0" class="px-4 pb-3"
-                            style="display: flex; gap: 12px; align-items: center;">
-                            <span style="font-size: 0.9em; color: #666; font-weight: 500;">Giá hôm nay:</span>
-                            <v-chip size="small" color="success" variant="flat" prepend-icon="mdi-triangle">
-                                <span style="font-weight: 600;">{{ priceStats.up }}</span>
-                            </v-chip>
-                            <v-chip size="small" color="warning" variant="flat" prepend-icon="mdi-minus">
-                                <span style="font-weight: 600;">{{ priceStats.neutral }}</span>
-                            </v-chip>
-                            <v-chip size="small" color="error" variant="flat" prepend-icon="mdi-triangle-down">
-                                <span style="font-weight: 600;">{{ priceStats.down }}</span>
-                            </v-chip>
-                            <span style="font-size: 0.85em; color: #999; margin-left: 8px;">({{ priceStats.total }}
-                                mã)</span>
-                        </div>
+                        <!-- Exchange Filter Tabs -->
+                        <v-tabs v-model="selectedExchange" density="compact" class="px-4">
+                            <v-tab value="ALL">Tất cả</v-tab>
+                            <v-tab value="HOSE">HOSE</v-tab>
+                            <v-tab value="HNX">HNX</v-tab>
+                        </v-tabs>
 
                         <v-data-table :headers="matrixHeaders" :items="matrixData.symbols || []" :items-per-page="100"
                             class="elevation-1" density="compact" :search="search">
@@ -140,12 +130,27 @@
                                     density="compact"></v-text-field>
                             </template>
 
+                            <!-- Custom Header for Price Column with Stats -->
+                            <template v-slot:header.price>
+                                <div style="text-align: center; line-height: 1.2;">
+                                    <div v-if="priceStats.total > 0">
+                                        <span style="font-weight: 600; color: #4CAF50;">{{
+                                            priceStats.up }}▲</span>
+                                        <span style="font-weight: 600; color: #FFA726;">{{
+                                            priceStats.neutral }}−</span>
+                                        <span style="font-weight: 600; color: #F44336;">{{
+                                            priceStats.down }}▼</span>
+                                    </div>
+                                    <div style="color: #666;">({{ priceStats.total }} mã)</div>
+                                </div>
+                            </template>
+
                             <!-- Custom Date Headers -->
                             <template v-for="(date, index) in matrixData.dates" :key="`header-${index}`"
                                 v-slot:[`header.day${index}`]>
                                 <div style="text-align: center; line-height: 1.2;">
                                     <div>{{ date.dateFormatted }}</div>
-                                    <div style="font-size: 0.85em; color: #666;">({{ date.vn30Count }}/{{ date.count }})
+                                    <div style="color: #666;">({{ date.vn30Count }}/{{ date.count }})
                                     </div>
                                 </div>
                             </template>
@@ -155,6 +160,11 @@
                                 <a :href="item.tradingViewUrl" target="_blank" class="stock-symbol"
                                     style="text-decoration: none; color: inherit;">
                                     {{ item.symbol }}
+                                    <v-chip v-if="item.exchange" size="x-small"
+                                        :color="item.exchange === 'HOSE' ? 'blue' : 'orange'" variant="flat"
+                                        style="margin-left: 4px; font-size: 0.7em; height: 16px;">
+                                        {{ item.exchange }}
+                                    </v-chip>
                                     <v-icon v-if="item.isVN30" icon="mdi-star" class="vn30-icon" title="VN30"></v-icon>
                                 </a>
                             </template>
@@ -228,6 +238,7 @@
                     loading: false,
                     loadingPrices: false,
                     processing: false,
+                    selectedExchange: 'ALL',
                     matrixData: {
                         dates: [],
                         symbols: [],
@@ -302,6 +313,13 @@
                     this.loadPrices();
                 });
             },
+            watch: {
+                selectedExchange() {
+                    this.loadData().then(() => {
+                        this.loadPrices();
+                    });
+                }
+            },
             methods: {
                 formatPriceChange(price, changePercent) {
                     if (price === null || price === undefined) return '-';
@@ -335,7 +353,7 @@
                     this.errorSnackbar = false;
 
                     try {
-                        const response = await fetch('/api/stocks/matrix');
+                        const response = await fetch(`/api/stocks/matrix?exchange=${this.selectedExchange}`);
                         const result = await response.json();
 
                         if (result.success) {
