@@ -376,7 +376,9 @@
                     this.loadingPrices = true;
                     const action = forceRefresh ? 'Refreshing' : 'Fetching';
                     console.log(`💰 ${action} prices in background...`);
-                    const symbols = this.matrixData.symbols.map(s => s.symbol).join(',');
+                    // Deduplicate symbols before fetching
+                    const uniqueSymbols = [...new Set(this.matrixData.symbols.map(s => s.symbol))];
+                    const symbols = uniqueSymbols.join(',');
                     const url = `/api/stocks/prices?symbols=${symbols}${forceRefresh ? '&force=1' : ''}`;
 
                     try {

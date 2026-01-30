@@ -2,14 +2,12 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const { exec, spawn } = require('child_process');
-const util = require('util');
-const execPromise = util.promisify(exec);
+const { spawn } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const MAX_DAYS = 10; // Maximum number of days to display in matrix view
-
+// Maximum number of days to display in matrix view
+const MAX_DAYS = 5;
 // Supported exchanges
 const EXCHANGES = ['HOSE', 'HNX'];
 
@@ -23,7 +21,7 @@ const RAW_FILE = path.join(__dirname, 'data', 'raw.json');
 const DATA_FILE = path.join(__dirname, 'data', 'data.json');
 const VN30_FILE = path.join(__dirname, 'data', 'vn30.json');
 const PYTHON_VENV = path.join(__dirname, '.venv', 'bin', 'python');
-const FETCH_PRICES_SCRIPT = path.join(__dirname, 'fetch_prices.py');
+const FETCH_PRICES_SCRIPT = path.join(__dirname, 'scripts', 'fetch_prices.py');
 
 // Price cache
 let priceCache = {
