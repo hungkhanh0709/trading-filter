@@ -100,6 +100,9 @@ class StockScorer:
         # Determine tier
         tier, tier_label, recommendation = self._calculate_tier(total_score)
         
+        # Extract technical signal (if available)
+        tech_signal = tech_result.get('signal', 'HOLD')
+        
         result = {
             'symbol': self.symbol,
             'analyzed_at': datetime.now().isoformat(),
@@ -108,6 +111,7 @@ class StockScorer:
             'tier': tier,
             'tier_label': tier_label,
             'recommendation': recommendation,
+            'technical_signal': tech_signal,
             'scores': {
                 'technical': tech_result,
                 'fundamental': fund_result,

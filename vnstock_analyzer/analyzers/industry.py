@@ -1,10 +1,10 @@
 """
-Industry Analyzer - Phân tích ngành (15 điểm)
+Industry Analyzer - Phân tích ngành (10 điểm)
 """
 
 
 class IndustryAnalyzer:
-    """Phân tích ngành - 15 điểm"""
+    """Phân tích ngành - 10 điểm"""
     
     def __init__(self, symbol, source='KBS'):
         """
@@ -42,7 +42,7 @@ class IndustryAnalyzer:
             tuple: (score, description)
         """
         if overview is None or len(overview) == 0:
-            return 3, "Unknown"
+            return 2, "Unknown"
         
         row = overview.iloc[0]
         outstanding = row.get('outstanding_shares')
@@ -51,21 +51,21 @@ class IndustryAnalyzer:
             market_cap = (outstanding * current_price) / 1e9
             
             if market_cap > 100_000:
-                return 3, f"Large-cap ({market_cap/1000:.0f} nghìn tỷ)"
+                return 2, f"Large-cap ({market_cap/1000:.0f} nghìn tỷ)"
             elif market_cap > 20_000:
-                return 4, f"Mid-large cap ({market_cap/1000:.0f} nghìn tỷ)"
+                return 3, f"Mid-large cap ({market_cap/1000:.0f} nghìn tỷ)"
             elif market_cap > 5_000:
-                return 5, f"Mid-cap ({market_cap/1000:.0f} nghìn tỷ)"
+                return 3, f"Mid-cap ({market_cap/1000:.0f} nghìn tỷ)"
             elif market_cap > 1_000:
-                return 3, f"Small-mid cap ({market_cap/1000:.0f} nghìn tỷ)"
+                return 2, f"Small-mid cap ({market_cap/1000:.0f} nghìn tỷ)"
             else:
-                return 2, f"Small-cap ({market_cap:.0f} tỷ)"
+                return 1, f"Small-cap ({market_cap:.0f} tỷ)"
         
-        return 3, "Unknown market cap"
+        return 2, "Unknown market cap"
     
     def get_total_score(self, overview, current_price):
         """
-        Tổng điểm Industry - 15 điểm
+        Tổng điểm Industry - 10 điểm
         
         Args:
             overview: Company overview dataframe
@@ -79,10 +79,10 @@ class IndustryAnalyzer:
         
         return {
             'total': 5 + market_cap_score,
-            'max': 15,
+            'max': 10,
             'breakdown': {
                 'industry': {'info': industry_name or 'Unknown'},
-                'relative_strength': {'score': 5, 'max': 10, 'reason': 'Cần data toàn ngành để so sánh'},
-                'market_position': {'score': market_cap_score, 'max': 5, 'reason': market_cap_desc}
+                'relative_strength': {'score': 5, 'max': 7, 'reason': 'Cần data toàn ngành để so sánh'},
+                'market_position': {'score': market_cap_score, 'max': 3, 'reason': market_cap_desc}
             }
         }

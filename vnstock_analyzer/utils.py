@@ -23,7 +23,23 @@ def print_report(result):
     # Overall score
     print(f"🎯 TỔNG ĐIỂM: {result['total_score']}/{result['max_score']}")
     print(f"🏅 XẾP HẠNG: {result['tier_label']}")
-    print(f"💡 KHUYẾN NGHỊ: {result['recommendation']}\n")
+    print(f"💡 KHUYẾN NGHỊ: {result['recommendation']}")
+    
+    # Technical signal (if available)
+    if 'technical_signal' in result:
+        signal = result['technical_signal']
+        signal_icons = {
+            'STRONG_BUY': '🟢🟢',
+            'BUY': '🟢',
+            'HOLD': '⚪',
+            'CAUTION': '🟡',
+            'SELL': '🔴',
+            'STRONG_SELL': '🔴🔴'
+        }
+        icon = signal_icons.get(signal, '⚪')
+        print(f"{icon} TÍN HIỆU KỸ THUẬT: {signal}")
+    
+    print()
     
     print(f"{'─'*60}")
     print(f"CHI TIẾT ĐIỂM SỐ:")

@@ -52,6 +52,10 @@
         "/^cd /Users/khanhto/Documents/Projects/trading/trading-filter && python -c \"\nfrom vnstock import Vnstock\nimport pandas as pd\n\npd\\.set_option\\('display\\.max_columns', None\\)\npd\\.set_option\\('display\\.width', 200\\)\n\nstock = Vnstock\\(\\)\\.stock\\('VIC', source='VCI'\\)\n\nprint\\('=== PRICE DEPTH \\(Order book\\) ==='\\)\ndepth = stock\\.quote\\.price_depth\\(\\)\nprint\\(f'Columns: \\{list\\(depth\\.columns\\)\\}'\\)\nprint\\(depth\\)\n\nprint\\('\\\\n=== TRADING STATS \\(Full display\\) ==='\\)\nstats = stock\\.company\\.trading_stats\\(\\)\nprint\\('All columns:'\\)\nfor col in stats\\.columns:\n    val = stats\\[col\\]\\.iloc\\[0\\]\n    print\\(f'\\{col\\}: \\{val\\}'\\)\n\" 2>&1$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^/Users/khanhto/Documents/Projects/trading/trading-filter/\\.venv/bin/python research_money_flow\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     },
     "git.ignoreLimitWarning": true
