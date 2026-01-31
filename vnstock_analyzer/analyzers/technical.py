@@ -437,40 +437,146 @@ class TechnicalAnalyzer:
         
         return bonus_score, signal, explanation
     
-    def get_total_score(self):
+    def get_analysis(self):
         """
-        Tổng điểm Technical - 30 điểm (base) + bonus 0-10 điểm
+        Status-based Technical Analysis
         
-        Base scoring (30 điểm):
-        - MA Trend: 10 điểm
-        - RSI: 5 điểm  
-        - Volume + OBV: 10 điểm
-        - Money Flow (MFI): 5 điểm
-        
-        Bonus (0-10 điểm):
-        - Pattern + Support/Resistance signals
+        Returns status for each criterion:
+        - EXCELLENT 🔥: Outstanding
+        - GOOD ✅: Pass
+        - ACCEPTABLE ➕: OK  
+        - WARNING ⚠️: Caution
+        - POOR ❌: Fail
+        - NA ⚪: No data
         
         Returns:
-            dict: Score breakdown with signal
+            dict: {
+                'status': 'GOOD',  # Overall component status
+                'criteria': {...},  # Individual criteria with status
+                'summary': {'excellent': 2, 'good': 3, ...},  # Count by status
+                'signal': 'BUY'  # Trading signal
+            }
         """
+        # Get individual scores (reuse existing methods)
         ma_score, ma_reason = self.score_ma_trend()
         rsi_score, rsi_reason = self.score_rsi()
         vol_score, vol_reason = self.score_volume()
         mfi_score, mfi_reason = self.score_money_flow()
         pattern_bonus, signal, pattern_reason = self.score_pattern_signals()
         
-        base_total = ma_score + rsi_score + vol_score + mfi_score
-        final_total = min(base_total + pattern_bonus, 30)  # Cap tại 30 điểm
-        
-        return {
-            'total': final_total,
-            'max': 30,
-            'signal': signal,  # STRONG_BUY, BUY, HOLD, CAUTION, SELL, STRONG_SELL
-            'breakdown': {
-                'ma_trend': {'score': ma_score, 'max': 10, 'reason': ma_reason},
-                'rsi': {'score': rsi_score, 'max': 5, 'reason': rsi_reason},
-                'volume_obv': {'score': vol_score, 'max': 10, 'reason': vol_reason},
-                'money_flow': {'score': mfi_score, 'max': 5, 'reason': mfi_reason},
-                'pattern_bonus': {'score': pattern_bonus, 'max': 10, 'reason': pattern_reason, 'signal': signal}
+        # Map scores to status
+        criteria = {
+            'ma_trend': {
+                'status': self._map_ma_status(ma_score),
+                'reason': ma_reason
+            },
+            'rsi': {
+                'status': self._map_rsi_status(rsi_score),
+                'reason': rsi_reason
+            },
+            'volume_obv': {
+                'status': self._map_volume_status(vol_score),
+                'reason': vol_reason
+            },
+            'money_flow': {
+                'status': self._map_mfi_status(mfi_score),
+                'reason': mfi_reason
+            },
+            'pattern_signal': {
+                'status': self._map_pattern_status(signal),
+                'reason': pattern_reason
             }
         }
+        
+        # Calculate overall component status
+        from ..core.constants import calculate_component_score, count_criteria_by_status
+        
+        component_score = calculate_component_score(criteria)
+        summary = count_criteria_by_status(criteria)
+        
+        # Determine overall status based on component score
+        if component_score >= 0.9:
+            overall_status = 'EXCELLENT'
+        elif component_score >= 0.7:
+            overall_status = 'GOOD'
+        elif component_score >= 0.5:
+            overall_status = 'ACCEPTABLE'
+        elif component_score >= 0.3:
+            overall_status = 'WARNING'
+        else:
+            overall_status = 'POOR'
+        
+        return {
+            'status': overall_status,
+            'criteria': criteria,
+            'summary': summary,
+            'signal': signal,
+            'component_score': component_score
+        }
+    
+    def _map_ma_status(self, score):
+        """Map MA score (0-10) to status"""
+        if score >= 9:  # Perfect MA + Golden Cross
+            return 'EXCELLENT'
+        elif score >= 7:  # Perfect MA or Good MA + Price > MA50
+            return 'GOOD'
+        elif score >= 4:  # Good MA or Price > MA20
+            return 'ACCEPTABLE'
+        elif score >= 2:  # Some positive signals
+            return 'WARNING'
+        else:
+            return 'POOR'
+    
+    def _map_rsi_status(self, score):
+        """Map RSI score (0-5) to status"""
+        if score == 5:  # 40-60 balanced
+            return 'EXCELLENT'
+        elif score == 4:  # 30-40 oversold recovery
+            return 'GOOD'
+        elif score == 3:  # <30 oversold or 60-70 positive
+            return 'ACCEPTABLE'
+        elif score == 2:  # >70 overbought
+            return 'WARNING'
+        else:
+            return 'POOR'
+    
+    def _map_volume_status(self, score):
+        """Map Volume+OBV score (0-10) to status"""
+        if score >= 8:  # Strong volume + accumulation + OBV confirmation
+            return 'EXCELLENT'
+        elif score >= 6:  # Good volume + some accumulation
+            return 'GOOD'
+        elif score >= 3:  # Acceptable volume
+            return 'ACCEPTABLE'
+        elif score >= 1:
+            return 'WARNING'
+        else:
+            return 'POOR'
+    
+    def _map_mfi_status(self, score):
+        """Map MFI score (0-5) to status"""
+        if score == 5:  # 40-60 balanced
+            return 'EXCELLENT'
+        elif score == 4:  # 20-40 oversold recovery
+            return 'GOOD'
+        elif score == 3:  # 60-80 positive or <20 oversold
+            return 'ACCEPTABLE'
+        elif score == 2:  # >80 overbought
+            return 'WARNING'
+        else:
+            return 'POOR'
+    
+    def _map_pattern_status(self, signal):
+        """Map trading signal to status"""
+        if signal == 'STRONG_BUY':
+            return 'EXCELLENT'
+        elif signal == 'BUY':
+            return 'GOOD'
+        elif signal == 'HOLD':
+            return 'ACCEPTABLE'
+        elif signal == 'CAUTION':
+            return 'WARNING'
+        elif signal in ['SELL', 'STRONG_SELL']:
+            return 'POOR'
+        else:
+            return 'NA'

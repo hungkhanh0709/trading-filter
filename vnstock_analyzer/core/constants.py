@@ -2,7 +2,25 @@
 Constants and thresholds for stock scoring system
 """
 
-# Scoring weights (total = 100)
+# Status-based evaluation system (using English labels as requested)
+STATUS_LEVELS = {
+    'EXCELLENT': {'icon': '🔥', 'label': 'EXCELLENT', 'weight': 1.0},
+    'GOOD': {'icon': '✅', 'label': 'GOOD', 'weight': 1.0},
+    'ACCEPTABLE': {'icon': '➕', 'label': 'ACCEPTABLE', 'weight': 0.7},
+    'WARNING': {'icon': '⚠️', 'label': 'WARNING', 'weight': 0.3},
+    'POOR': {'icon': '❌', 'label': 'POOR', 'weight': 0.0},
+    'NA': {'icon': '⚪', 'label': 'NA', 'weight': None}
+}
+
+# Component weights for tier calculation (total = 1.0)
+COMPONENT_WEIGHTS = {
+    'technical': 0.40,      # 40% - most important
+    'fundamental': 0.35,    # 35%
+    'liquidity': 0.25       # 25%
+    # Sentiment and Industry are disabled
+}
+
+# Legacy scoring weights (kept for backward compatibility)
 WEIGHTS = {
     'technical': 25,
     'fundamental': 25,
@@ -14,10 +32,10 @@ WEIGHTS = {
 # Tier thresholds and labels
 TIERS = {
     'S': (85, 100),
-    'A': (70, 84),
-    'B': (55, 69),
-    'C': (40, 54),
-    'D': (0, 39)
+    'A': (70, 85), 
+    'B': (55, 70), 
+    'C': (40, 55),  
+    'D': (0, 40)
 }
 
 TIER_LABELS = {
@@ -138,3 +156,101 @@ INDUSTRY_WEIGHTS = {
     'relative_strength': 10,
     'market_position': 5
 }
+
+
+# Helper functions for status-based evaluation
+def calculate_component_score(criteria):
+    """
+    Calculate component score based on status distribution
+    
+    Args:
+        criteria: Dict of {criterion_name: {'status': 'GOOD', 'reason': '...'}}
+        
+    Returns:
+        float: Score 0-1 representing quality
+    """
+    if not criteria:
+        return 0.0
+    
+    total_weight = 0.0
+    total_criteria = 0
+    
+    for criterion_data in criteria.values():
+        status = criterion_data.get('status') if isinstance(criterion_data, dict) else criterion_data
+        weight = STATUS_LEVELS.get(status, {}).get('weight')
+        if weight is not None:  # Exclude NA
+            total_weight += weight
+            total_criteria += 1
+    
+    return total_weight / total_criteria if total_criteria > 0 else 0.0
+
+
+def calculate_overall_tier(component_scores, weights=None):
+    """
+    Calculate overall tier based on weighted component scores
+    
+    Args:
+        component_scores: Dict of {component: score} where score is 0-1
+        weights: Dict of {component: weight} (optional, uses COMPONENT_WEIGHTS if not provided)
+        
+    Returns:
+        tuple: (tier, tier_label)
+    """
+    if weights is None:
+        weights = COMPONENT_WEIGHTS
+    
+    weighted_score = sum(
+        score * weights.get(component, 0)
+        for component, score in component_scores.items()
+    )
+    
+    # Convert to percentage
+    percentage = weighted_score * 100
+    
+    # Determine tier
+    for tier, (min_score, max_score) in TIERS.items():
+        if min_score <= percentage <= max_score:
+            return tier, TIER_LABELS[tier]
+    
+    # Fallback
+    return 'D', TIER_LABELS['D']
+
+
+def count_criteria_by_status(criteria_dict):
+    """
+    Count criteria by status level
+    
+    Args:
+        criteria_dict: Dict of {criterion_name: {'status': '...', ...}}
+        
+    Returns:
+        dict: Status counts
+    """
+    counts = {
+        'total': 0,
+        'excellent': 0,
+        'good': 0,
+        'acceptable': 0,
+        'warning': 0,
+        'poor': 0,
+        'na': 0
+    }
+    
+    for criterion in criteria_dict.values():
+        status = criterion.get('status', 'NA')
+        counts['total'] += 1
+        
+        if status == 'EXCELLENT':
+            counts['excellent'] += 1
+        elif status == 'GOOD':
+            counts['good'] += 1
+        elif status == 'ACCEPTABLE':
+            counts['acceptable'] += 1
+        elif status == 'WARNING':
+            counts['warning'] += 1
+        elif status == 'POOR':
+            counts['poor'] += 1
+        elif status == 'NA':
+            counts['na'] += 1
+    
+    return counts

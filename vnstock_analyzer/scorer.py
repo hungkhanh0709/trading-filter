@@ -32,7 +32,7 @@ class StockScorer:
         
     def _calculate_tier(self, total_score):
         """
-        Determine tier based on total score
+        Determine tier based on total score (DEPRECATED - kept for compatibility)
         
         Args:
             total_score: Total score (0-100)
@@ -46,6 +46,48 @@ class StockScorer:
         
         # Fallback
         return 'D', TIER_LABELS['D'], TIER_RECOMMENDATIONS['D']
+    
+    def _generate_recommendation(self, tier, tech_signal):
+        """
+        Generate recommendation based on tier and technical signal
+        
+        Args:
+            tier: Overall tier (S, A, B, C, D)
+            tech_signal: Technical signal (STRONG_BUY, BUY, HOLD, CAUTION, SELL, STRONG_SELL)
+            
+        Returns:
+            str: Recommendation text
+        """
+        # Base recommendation from tier
+        base_rec = TIER_RECOMMENDATIONS.get(tier, 'Theo dõi')
+        
+        # Adjust based on technical signal
+        if tier in ['S', 'A']:
+            if tech_signal in ['STRONG_BUY', 'BUY']:
+                return '🔥 MUA MẠNH - Cơ hội tốt'
+            elif tech_signal == 'HOLD':
+                return '✅ MUA - Nắm giữ dài hạn'
+            elif tech_signal == 'CAUTION':
+                return '⚠️  THẬN TRỌNG - Chờ tín hiệu tốt hơn'
+            else:  # SELL, STRONG_SELL
+                return '⚠️  CANH GIẢM - Đợi điều chỉnh'
+        
+        elif tier == 'B':
+            if tech_signal in ['STRONG_BUY', 'BUY']:
+                return '✅ MUA - Tiềm năng tốt'
+            elif tech_signal == 'HOLD':
+                return '➕ THEO DÕI - Cân nhắc mua'
+            else:
+                return '⚠️  THẬN TRỌNG'
+        
+        elif tier == 'C':
+            if tech_signal in ['STRONG_BUY', 'BUY']:
+                return '➕ THEO DÕI - Tín hiệu kỹ thuật tốt nhưng cơ bản yếu'
+            else:
+                return '⚠️  TRÁNH - Rủi ro cao'
+        
+        else:  # tier D
+            return '❌ TRÁNH - Không nên đầu tư'
         
     def analyze(self):
         """
@@ -74,50 +116,48 @@ class StockScorer:
         
         technical = TechnicalAnalyzer(df_history)
         fundamental = FundamentalAnalyzer(df_ratio)
-        sentiment = SentimentAnalyzer(insider, shareholders)
+        # sentiment = SentimentAnalyzer(insider, shareholders)  # DISABLED: Insufficient data
         liquidity = LiquidityAnalyzer(df_history)
         
         # Get current price for industry analyzer
-        current_price = df_history.iloc[-1]['close'] if df_history is not None and len(df_history) > 0 else None
-        industry = IndustryAnalyzer(self.symbol, self.source)
+        # current_price = df_history.iloc[-1]['close'] if df_history is not None and len(df_history) > 0 else None
+        # industry = IndustryAnalyzer(self.symbol, self.source)  # DISABLED: Low practical value
         
-        # Calculate scores
-        tech_result = technical.get_total_score()
-        fund_result = fundamental.get_total_score()
-        sent_result = sentiment.get_total_score()
-        liq_result = liquidity.get_total_score()
-        industry_result = industry.get_total_score(overview, current_price)
+        # Get status-based analysis (NEW)
+        tech_result = technical.get_analysis()
+        fund_result = fundamental.get_analysis()
+        # sent_result = sentiment.get_analysis()  # DISABLED
+        liq_result = liquidity.get_analysis()
+        # industry_result = industry.get_analysis(overview, current_price)  # DISABLED
         
-        # Total score
-        total_score = (
-            tech_result['total'] + 
-            fund_result['total'] + 
-            sent_result['total'] + 
-            liq_result['total'] + 
-            industry_result['total']
-        )
+        # Calculate overall tier using weighted component scores
+        from .core.constants import calculate_overall_tier, COMPONENT_WEIGHTS
         
-        # Determine tier
-        tier, tier_label, recommendation = self._calculate_tier(total_score)
+        component_scores = {
+            'technical': tech_result.get('component_score', 0),
+            'fundamental': fund_result.get('component_score', 0),
+            'liquidity': liq_result.get('component_score', 0)
+        }
         
-        # Extract technical signal (if available)
+        tier, tier_label = calculate_overall_tier(component_scores, COMPONENT_WEIGHTS)
+        
+        # Generate recommendation based on tier and technical signal
         tech_signal = tech_result.get('signal', 'HOLD')
+        recommendation = self._generate_recommendation(tier, tech_signal)
         
         result = {
             'symbol': self.symbol,
             'analyzed_at': datetime.now().isoformat(),
-            'total_score': total_score,
-            'max_score': 100,
             'tier': tier,
             'tier_label': tier_label,
             'recommendation': recommendation,
             'technical_signal': tech_signal,
-            'scores': {
+            'components': {
                 'technical': tech_result,
                 'fundamental': fund_result,
-                'sentiment': sent_result,
+                # 'sentiment': sent_result,  # DISABLED
                 'liquidity': liq_result,
-                'industry': industry_result
+                # 'industry': industry_result  # DISABLED
             }
         }
         

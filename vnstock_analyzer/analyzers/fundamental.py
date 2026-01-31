@@ -57,125 +57,177 @@ class FundamentalAnalyzer:
         
         return ratios
     
-    def get_total_score(self):
+    def get_analysis(self):
         """
-        Tổng điểm Fundamental - 25 điểm
+        Status-based Fundamental Analysis
+        
+        Returns status for each criterion:
+        - EXCELLENT 🔥: Outstanding
+        - GOOD ✅: Pass
+        - ACCEPTABLE ➕: OK
+        - WARNING ⚠️: Caution
+        - POOR ❌: Fail
+        - NA ⚪: No data
         
         Returns:
-            dict: Score breakdown
+            dict: {
+                'status': 'GOOD',
+                'criteria': {...},
+                'summary': {'excellent': 2, 'good': 3, ...}
+            }
         """
         if not self.ratios:
             return {
-                'total': 0,
-                'max': 25,
-                'breakdown': {
-                    'valuation': {'score': 0, 'max': 10, 'reason': 'Không có dữ liệu'},
-                    'profitability': {'score': 0, 'max': 10, 'reason': 'Không có dữ liệu'},
-                    'financial_health': {'score': 0, 'max': 5, 'reason': 'Không có dữ liệu'}
-                }
+                'status': 'NA',
+                'criteria': {
+                    'pe': {'status': 'NA', 'reason': 'Không có dữ liệu'},
+                    'pb': {'status': 'NA', 'reason': 'Không có dữ liệu'},
+                    'roe': {'status': 'NA', 'reason': 'Không có dữ liệu'},
+                    'roa': {'status': 'NA', 'reason': 'Không có dữ liệu'},
+                    'eps': {'status': 'NA', 'reason': 'Không có dữ liệu'},
+                    'debt_equity': {'status': 'NA', 'reason': 'Không có dữ liệu'},
+                    'current_ratio': {'status': 'NA', 'reason': 'Không có dữ liệu'}
+                },
+                'summary': {'na': 7},
+                'component_score': 0
             }
         
-        # Valuation - 10 điểm
-        val_score = 0
-        val_reasons = []
+        # Analyze each criterion
+        criteria = {}
         
+        # PE Ratio
         pe = self.ratios.get('pe')
         if pe is not None and pe > 0:
-            if 8 < pe < 15:
-                val_score += 5
-                val_reasons.append(f"✅ PE hợp lý ({pe:.1f})")
-            elif 5 < pe <= 8:
-                val_score += 4
-                val_reasons.append(f"💎 PE rất tốt ({pe:.1f})")
+            if 5 < pe <= 8:
+                criteria['pe'] = {'status': 'EXCELLENT', 'reason': f'💎 PE rất tốt ({pe:.1f})'}
+            elif 8 < pe < 15:
+                criteria['pe'] = {'status': 'GOOD', 'reason': f'✅ PE hợp lý ({pe:.1f})'}
             elif 15 <= pe < 25:
-                val_score += 2
-                val_reasons.append(f"➕ PE chấp nhận được ({pe:.1f})")
-            else:
-                val_reasons.append(f"⚠️  PE cao/thấp bất thường ({pe:.1f})")
+                criteria['pe'] = {'status': 'ACCEPTABLE', 'reason': f'➕ PE chấp nhận được ({pe:.1f})'}
+            elif pe >= 25:
+                criteria['pe'] = {'status': 'WARNING', 'reason': f'⚠️  PE cao ({pe:.1f})'}
+            else:  # pe <= 5
+                criteria['pe'] = {'status': 'POOR', 'reason': f'⚠️  PE quá thấp ({pe:.1f})'}
+        else:
+            criteria['pe'] = {'status': 'NA', 'reason': 'Không có dữ liệu PE'}
         
+        # PB Ratio
         pb = self.ratios.get('pb')
         if pb is not None and pb > 0:
-            if 0.8 < pb < 2:
-                val_score += 5
-                val_reasons.append(f"✅ PB tốt ({pb:.1f})")
-            elif pb <= 0.8:
-                val_score += 3
-                val_reasons.append(f"💎 PB thấp ({pb:.1f})")
+            if pb <= 0.8:
+                criteria['pb'] = {'status': 'EXCELLENT', 'reason': f'💎 PB thấp ({pb:.1f})'}
+            elif 0.8 < pb < 2:
+                criteria['pb'] = {'status': 'GOOD', 'reason': f'✅ PB tốt ({pb:.1f})'}
+            elif 2 <= pb < 3:
+                criteria['pb'] = {'status': 'ACCEPTABLE', 'reason': f'➕ PB chấp nhận ({pb:.1f})'}
+            elif pb >= 3:
+                criteria['pb'] = {'status': 'WARNING', 'reason': f'⚠️  PB cao ({pb:.1f})'}
             else:
-                val_reasons.append(f"⚠️  PB cao ({pb:.1f})")
+                criteria['pb'] = {'status': 'POOR', 'reason': f'⚠️  PB bất thường ({pb:.1f})'}
+        else:
+            criteria['pb'] = {'status': 'NA', 'reason': 'Không có dữ liệu PB'}
         
-        # Profitability - 10 điểm
-        prof_score = 0
-        prof_reasons = []
-        
+        # ROE
         roe = self.ratios.get('roe')
         if roe is not None:
             if roe > 15:
-                prof_score += 5
-                prof_reasons.append(f"🔥 ROE xuất sắc ({roe:.1f}%)")
+                criteria['roe'] = {'status': 'EXCELLENT', 'reason': f'🔥 ROE xuất sắc ({roe:.1f}%)'}
             elif roe > 10:
-                prof_score += 3
-                prof_reasons.append(f"✅ ROE tốt ({roe:.1f}%)")
+                criteria['roe'] = {'status': 'GOOD', 'reason': f'✅ ROE tốt ({roe:.1f}%)'}
             elif roe > 5:
-                prof_score += 1
-                prof_reasons.append(f"➕ ROE chấp nhận ({roe:.1f}%)")
+                criteria['roe'] = {'status': 'ACCEPTABLE', 'reason': f'➕ ROE chấp nhận ({roe:.1f}%)'}
+            elif roe > 0:
+                criteria['roe'] = {'status': 'WARNING', 'reason': f'⚠️  ROE thấp ({roe:.1f}%)'}
             else:
-                prof_reasons.append(f"⚠️  ROE thấp ({roe:.1f}%)")
+                criteria['roe'] = {'status': 'POOR', 'reason': f'❌ ROE âm ({roe:.1f}%)'}
+        else:
+            criteria['roe'] = {'status': 'NA', 'reason': 'Không có dữ liệu ROE'}
         
+        # ROA
         roa = self.ratios.get('roa')
         if roa is not None:
             if roa > 8:
-                prof_score += 3
-                prof_reasons.append(f"✅ ROA tốt ({roa:.1f}%)")
+                criteria['roa'] = {'status': 'EXCELLENT', 'reason': f'🔥 ROA xuất sắc ({roa:.1f}%)'}
             elif roa > 5:
-                prof_score += 2
-                prof_reasons.append(f"➕ ROA chấp nhận ({roa:.1f}%)")
+                criteria['roa'] = {'status': 'GOOD', 'reason': f'✅ ROA tốt ({roa:.1f}%)'}
+            elif roa > 2:
+                criteria['roa'] = {'status': 'ACCEPTABLE', 'reason': f'➕ ROA chấp nhận ({roa:.1f}%)'}
+            elif roa > 0:
+                criteria['roa'] = {'status': 'WARNING', 'reason': f'⚠️  ROA thấp ({roa:.1f}%)'}
+            else:
+                criteria['roa'] = {'status': 'POOR', 'reason': f'❌ ROA âm ({roa:.1f}%)'}
+        else:
+            criteria['roa'] = {'status': 'NA', 'reason': 'Không có dữ liệu ROA'}
         
+        # EPS
         eps = self.ratios.get('eps') or self.ratios.get('trailing_eps')
         if eps is not None and eps > 0:
-            # Đơn giản hóa: nếu có EPS dương là tốt
             if eps > 3000:
-                prof_score += 4
-                prof_reasons.append(f"✅ EPS cao ({eps:.0f})")
+                criteria['eps'] = {'status': 'EXCELLENT', 'reason': f'🔥 EPS cao ({eps:.0f})'}
             elif eps > 1000:
-                prof_score += 2
-                prof_reasons.append(f"➕ EPS tốt ({eps:.0f})")
+                criteria['eps'] = {'status': 'GOOD', 'reason': f'✅ EPS tốt ({eps:.0f})'}
+            elif eps > 500:
+                criteria['eps'] = {'status': 'ACCEPTABLE', 'reason': f'➕ EPS chấp nhận ({eps:.0f})'}
+            else:
+                criteria['eps'] = {'status': 'WARNING', 'reason': f'⚠️  EPS thấp ({eps:.0f})'}
+        elif eps is not None and eps <= 0:
+            criteria['eps'] = {'status': 'POOR', 'reason': f'❌ EPS âm hoặc 0 ({eps:.0f})'}
+        else:
+            criteria['eps'] = {'status': 'NA', 'reason': 'Không có dữ liệu EPS'}
         
-        # Financial Health - 5 điểm
-        health_score = 0
-        health_reasons = []
-        
+        # Debt/Equity
         de = self.ratios.get('debtOnEquity') or self.ratios.get('debt_on_equity')
         if de is not None:
             if de < 0.5:
-                health_score += 3
-                health_reasons.append(f"✅ Nợ rất thấp (D/E: {de:.2f})")
+                criteria['debt_equity'] = {'status': 'EXCELLENT', 'reason': f'✅ Nợ rất thấp (D/E: {de:.2f})'}
             elif de < 1:
-                health_score += 2
-                health_reasons.append(f"➕ Nợ hợp lý (D/E: {de:.2f})")
+                criteria['debt_equity'] = {'status': 'GOOD', 'reason': f'✅ Nợ hợp lý (D/E: {de:.2f})'}
             elif de < 2:
-                health_score += 1
-                health_reasons.append(f"⚠️  Nợ cao (D/E: {de:.2f})")
+                criteria['debt_equity'] = {'status': 'ACCEPTABLE', 'reason': f'➕ Nợ chấp nhận (D/E: {de:.2f})'}
+            elif de < 3:
+                criteria['debt_equity'] = {'status': 'WARNING', 'reason': f'⚠️  Nợ cao (D/E: {de:.2f})'}
             else:
-                health_reasons.append(f"❌ Nợ quá cao (D/E: {de:.2f})")
+                criteria['debt_equity'] = {'status': 'POOR', 'reason': f'❌ Nợ quá cao (D/E: {de:.2f})'}
+        else:
+            criteria['debt_equity'] = {'status': 'NA', 'reason': 'Không có dữ liệu D/E'}
         
+        # Current Ratio
         cr = self.ratios.get('currentRatio') or self.ratios.get('current_ratio')
         if cr is not None:
-            if cr > 1.5:
-                health_score += 2
-                health_reasons.append(f"✅ Thanh khoản tốt (CR: {cr:.2f})")
+            if cr > 2:
+                criteria['current_ratio'] = {'status': 'EXCELLENT', 'reason': f'✅ Thanh khoản rất tốt (CR: {cr:.2f})'}
+            elif cr > 1.5:
+                criteria['current_ratio'] = {'status': 'GOOD', 'reason': f'✅ Thanh khoản tốt (CR: {cr:.2f})'}
             elif cr > 1:
-                health_score += 1
-                health_reasons.append(f"➕ Thanh khoản OK (CR: {cr:.2f})")
+                criteria['current_ratio'] = {'status': 'ACCEPTABLE', 'reason': f'➕ Thanh khoản OK (CR: {cr:.2f})'}
+            elif cr > 0.8:
+                criteria['current_ratio'] = {'status': 'WARNING', 'reason': f'⚠️  Thanh khoản yếu (CR: {cr:.2f})'}
             else:
-                health_reasons.append(f"⚠️  Thanh khoản yếu (CR: {cr:.2f})")
+                criteria['current_ratio'] = {'status': 'POOR', 'reason': f'❌ Thanh khoản rất yếu (CR: {cr:.2f})'}
+        else:
+            criteria['current_ratio'] = {'status': 'NA', 'reason': 'Không có dữ liệu CR'}
+        
+        # Calculate overall component status
+        from ..core.constants import calculate_component_score, count_criteria_by_status
+        
+        component_score = calculate_component_score(criteria)
+        summary = count_criteria_by_status(criteria)
+        
+        # Determine overall status
+        if component_score >= 0.9:
+            overall_status = 'EXCELLENT'
+        elif component_score >= 0.7:
+            overall_status = 'GOOD'
+        elif component_score >= 0.5:
+            overall_status = 'ACCEPTABLE'
+        elif component_score >= 0.3:
+            overall_status = 'WARNING'
+        else:
+            overall_status = 'POOR'
         
         return {
-            'total': min(val_score, 10) + min(prof_score, 10) + min(health_score, 5),
-            'max': 25,
-            'breakdown': {
-                'valuation': {'score': min(val_score, 10), 'max': 10, 'reason': "; ".join(val_reasons) or "N/A"},
-                'profitability': {'score': min(prof_score, 10), 'max': 10, 'reason': "; ".join(prof_reasons) or "N/A"},
-                'financial_health': {'score': min(health_score, 5), 'max': 5, 'reason': "; ".join(health_reasons) or "N/A"}
-            }
+            'status': overall_status,
+            'criteria': criteria,
+            'summary': summary,
+            'component_score': component_score
         }

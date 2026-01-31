@@ -15,59 +15,115 @@ class LiquidityAnalyzer:
         """
         self.df = df_history
     
-    def get_total_score(self):
+    def get_analysis(self):
         """
-        Tổng điểm Liquidity - 15 điểm
+        Status-based Liquidity Analysis
+        
+        Returns status for each criterion:
+        - EXCELLENT 🔥: Outstanding
+        - GOOD ✅: Pass
+        - ACCEPTABLE ➕: OK
+        - WARNING ⚠️: Caution
+        - POOR ❌: Fail
+        - NA ⚪: No data
         
         Returns:
-            dict: Score breakdown
+            dict: {
+                'status': 'GOOD',
+                'criteria': {...},
+                'summary': {'excellent': 1, 'good': 1, ...}
+            }
         """
         if self.df is None or len(self.df) < 20:
             return {
-                'total': 0,
-                'max': 15,
-                'breakdown': {
-                    'avg_volume': {'score': 0, 'max': 10, 'reason': 'Không đủ dữ liệu'},
-                    'volatility': {'score': 0, 'max': 5, 'reason': 'Không đủ dữ liệu'}
-                }
+                'status': 'NA',
+                'criteria': {
+                    'avg_volume': {'status': 'NA', 'reason': 'Không đủ dữ liệu'},
+                    'volatility': {'status': 'NA', 'reason': 'Không đủ dữ liệu'}
+                },
+                'summary': {'na': 2},
+                'component_score': 0
             }
         
-        # Volume consistency - 10 điểm
+        criteria = {}
+        
+        # Average Volume
         avg_vol = self.df['volume'].mean()
-        vol_score = 0
-        
         if avg_vol > 1_000_000:
-            vol_score = 10
-            vol_reason = f"✅ Thanh khoản rất cao ({avg_vol/1e6:.1f}M cp/ngày)"
+            criteria['avg_volume'] = {
+                'status': 'EXCELLENT',
+                'reason': f"🔥 Thanh khoản rất cao ({avg_vol/1e6:.1f}M cp/ngày)"
+            }
         elif avg_vol > 500_000:
-            vol_score = 8
-            vol_reason = f"✅ Thanh khoản tốt ({avg_vol/1e3:.0f}K cp/ngày)"
+            criteria['avg_volume'] = {
+                'status': 'GOOD',
+                'reason': f"✅ Thanh khoản tốt ({avg_vol/1e3:.0f}K cp/ngày)"
+            }
         elif avg_vol > 200_000:
-            vol_score = 5
-            vol_reason = f"➕ Thanh khoản chấp nhận ({avg_vol/1e3:.0f}K cp/ngày)"
+            criteria['avg_volume'] = {
+                'status': 'ACCEPTABLE',
+                'reason': f"➕ Thanh khoản chấp nhận ({avg_vol/1e3:.0f}K cp/ngày)"
+            }
+        elif avg_vol > 100_000:
+            criteria['avg_volume'] = {
+                'status': 'WARNING',
+                'reason': f"⚠️  Thanh khoản thấp ({avg_vol/1e3:.0f}K cp/ngày)"
+            }
         else:
-            vol_score = 2
-            vol_reason = f"⚠️  Thanh khoản thấp ({avg_vol/1e3:.0f}K cp/ngày)"
+            criteria['avg_volume'] = {
+                'status': 'POOR',
+                'reason': f"❌ Thanh khoản rất thấp ({avg_vol/1e3:.0f}K cp/ngày)"
+            }
         
-        # Volatility - 5 điểm
+        # Volatility
         volatility = self.df['close'].pct_change().std() * 100
-        vol_score_2 = 0
-        
-        if 1 < volatility < 3:
-            vol_score_2 = 5
-            vol_reason_2 = f"✅ Biến động hợp lý ({volatility:.1f}%)"
+        if volatility < 2:
+            criteria['volatility'] = {
+                'status': 'EXCELLENT',
+                'reason': f"✅ Biến động thấp ({volatility:.1f}%)"
+            }
+        elif 2 <= volatility < 3:
+            criteria['volatility'] = {
+                'status': 'GOOD',
+                'reason': f"✅ Biến động hợp lý ({volatility:.1f}%)"
+            }
         elif 3 <= volatility < 5:
-            vol_score_2 = 3
-            vol_reason_2 = f"➕ Biến động trung bình ({volatility:.1f}%)"
+            criteria['volatility'] = {
+                'status': 'ACCEPTABLE',
+                'reason': f"➕ Biến động trung bình ({volatility:.1f}%)"
+            }
+        elif 5 <= volatility < 7:
+            criteria['volatility'] = {
+                'status': 'WARNING',
+                'reason': f"⚠️  Biến động cao ({volatility:.1f}%)"
+            }
         else:
-            vol_score_2 = 1
-            vol_reason_2 = f"⚠️  Biến động cao ({volatility:.1f}%)"
+            criteria['volatility'] = {
+                'status': 'POOR',
+                'reason': f"❌ Biến động rất cao ({volatility:.1f}%)"
+            }
+        
+        # Calculate overall component status
+        from ..core.constants import calculate_component_score, count_criteria_by_status
+        
+        component_score = calculate_component_score(criteria)
+        summary = count_criteria_by_status(criteria)
+        
+        # Determine overall status
+        if component_score >= 0.9:
+            overall_status = 'EXCELLENT'
+        elif component_score >= 0.7:
+            overall_status = 'GOOD'
+        elif component_score >= 0.5:
+            overall_status = 'ACCEPTABLE'
+        elif component_score >= 0.3:
+            overall_status = 'WARNING'
+        else:
+            overall_status = 'POOR'
         
         return {
-            'total': vol_score + vol_score_2,
-            'max': 15,
-            'breakdown': {
-                'avg_volume': {'score': vol_score, 'max': 10, 'reason': vol_reason},
-                'volatility': {'score': vol_score_2, 'max': 5, 'reason': vol_reason_2}
-            }
+            'status': overall_status,
+            'criteria': criteria,
+            'summary': summary,
+            'component_score': component_score
         }
