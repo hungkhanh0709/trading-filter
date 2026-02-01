@@ -53,7 +53,7 @@ def fetch_prices(symbols):
                     'changePercent': round(change_percent, 2)
                 }
                 success_count += 1
-                print(f"✅ Progress: {idx}/{total} - {symbol}: {close_price:,.0f} ({change_percent:+.1f}%)", file=sys.stderr)
+                print(f"✅ Progress: {idx}/{total} - {symbol}: {close_price:.2f} ({change_percent:+.1f}%)", file=sys.stderr)
             else:
                 results[symbol] = {
                     'price': None,

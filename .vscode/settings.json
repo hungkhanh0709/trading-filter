@@ -60,6 +60,14 @@
         "/^mv vnstock_analyzer/analyzers/technical\\.py vnstock_analyzer/analyzers/technical_old\\.py && mv vnstock_analyzer/analyzers/technical_new\\.py vnstock_analyzer/analyzers/technical\\.py$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^node server\\.js &$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^source \\.venv/bin/activate && python scripts/analyze_stock\\.py VPL 2>/dev/null \\| python3 -c \"import sys, json; d=json\\.load\\(sys\\.stdin\\); tech=d\\['components'\\]\\['technical'\\]; ma=tech\\['criteria'\\]\\['ma_trend'\\]; print\\('Tier:', d\\['tier'\\]\\); print\\('UI Alerts:'\\); import json; \\[print\\(f\\\\\"  - \\{a\\['type'\\]\\}: \\{a\\['color'\\]\\} \\| \\{a\\.get\\('tooltip', ''\\)\\[:60\\]\\}\\.\\.\\.\\\\\"\\) for a in ma\\.get\\('ui_alerts', \\[\\]\\)\\]\"$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     },
     "git.ignoreLimitWarning": true

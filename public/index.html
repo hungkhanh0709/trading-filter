@@ -124,6 +124,15 @@
                     Stock Filter - Matrix View
                 </v-app-bar-title>
                 <v-spacer></v-spacer>
+                <!-- Analysis Progress -->
+                <div v-if="autoAnalyzing" class="mr-4" style="display: flex; align-items: center; gap: 8px;">
+                    <v-progress-circular indeterminate size="20" width="2" color="white"></v-progress-circular>
+                    <span style="font-size: 0.9em;">
+                        Phân tích: {{ analyzingProgress.completed }}/{{ analyzingProgress.total }}
+                    </span>
+                </div>
+                <v-btn icon="mdi-chart-box-outline" @click="autoAnalyzeAll" :loading="autoAnalyzing" variant="text"
+                    title="Phân tích tất cả"></v-btn>
                 <v-btn icon="mdi-cash-sync" @click="loadPrices(true)" :loading="loadingPrices" variant="text"
                     title="Refresh Prices"></v-btn>
                 <v-btn icon="mdi-file-import" @click="processRawData" :loading="processing" variant="text"
@@ -197,13 +206,12 @@
                                         <v-icon v-if="item.isVN100" icon="mdi-star-outline" class="vn100-icon"
                                             title="VN100"></v-icon>
                                     </a>
-                                    <v-btn icon size="x-small" variant="text" @click.stop="analyzeSymbol(item)"
-                                        :loading="item.analyzing" :color="item.analysis ? 'success' : 'primary'"
+                                    <v-btn icon size="x-small" variant="text" @click.stop="fetchPrice(item)"
+                                        :loading="item.fetchingPrice" :color="item.price ? 'success' : 'primary'"
                                         density="compact">
-                                        <v-icon :icon="item.analysis ? 'mdi-refresh' : 'mdi-chart-box'"
-                                            size="small"></v-icon>
+                                        <v-icon icon="mdi-cash-sync" size="small"></v-icon>
                                         <v-tooltip activator="parent" location="top">
-                                            {{ getAnalyzeButtonTooltip(item) }}
+                                            {{ getPriceButtonTooltip(item) }}
                                         </v-tooltip>
                                     </v-btn>
                                 </div>
@@ -364,7 +372,12 @@
                     },
                     search: '',
                     errorSnackbar: false,
-                    errorMessage: ''
+                    errorMessage: '',
+                    // Auto-analysis queue
+                    analyzingQueue: [],
+                    analyzingProgress: { completed: 0, total: 0 },
+                    maxConcurrent: 5,
+                    autoAnalyzing: false
                 };
             },
             computed: {
@@ -450,22 +463,23 @@
             },
             mounted() {
                 this.loadData().then(() => {
-                    this.loadPrices();
+                    this.autoAnalyzeAll();
                 });
             },
             watch: {
                 selectedExchange() {
                     this.loadData().then(() => {
-                        this.loadPrices();
+                        this.autoAnalyzeAll();
                     });
                 }
             },
             methods: {
                 formatPriceChange(price, changePercent) {
                     if (price === null || price === undefined) return '-';
-                    const priceInK = (price / 1000).toFixed(1);
+                    // Price is already in thousands (e.g., 23.55 = 23,550 VND)
+                    const priceFormatted = price.toFixed(2);
                     if (changePercent === null || changePercent === undefined) {
-                        return `${priceInK}`;
+                        return `${priceFormatted}`;
                     }
                     const sign = changePercent > 0 ? '+' : '';
                     const percent = Math.abs(changePercent) < 10 ? changePercent.toFixed(1) : Math.round(changePercent);
@@ -480,7 +494,7 @@
                         icon = '− ';
                     }
 
-                    return `${icon}${priceInK} (${sign}${percent}%)`;
+                    return `${icon}${priceFormatted} (${sign}${percent}%)`;
                 },
                 getChangeClass(change) {
                     if (change === null || change === undefined) return 'change-neutral';
@@ -502,7 +516,8 @@
                                 ...symbol,
                                 analyzing: false,
                                 analysis: null,
-                                analysisError: null
+                                analysisError: null,
+                                fetchingPrice: false
                             }));
 
                             this.matrixData = result.data;
@@ -578,42 +593,113 @@
                     }
                 },
 
-                // Analysis methods
-                async analyzeSymbol(item) {
-                    if (item.analyzing) return;
+                // Auto-analysis methods
+                async autoAnalyzeAll() {
+                    if (!this.matrixData || !this.matrixData.symbols || this.matrixData.symbols.length === 0) {
+                        return;
+                    }
 
-                    // Set analyzing state - Vue 3 automatically tracks changes
+                    if (this.autoAnalyzing) {
+                        console.log('⚠️ Auto-analysis already running, skipping...');
+                        return;
+                    }
+
+                    this.autoAnalyzing = true;
+
+                    // Priority: VN30 first, then others
+                    const vn30Symbols = this.matrixData.symbols.filter(s => s.isVN30);
+                    const otherSymbols = this.matrixData.symbols.filter(s => !s.isVN30);
+                    const sortedSymbols = [...vn30Symbols, ...otherSymbols];
+
+                    this.analyzingProgress = {
+                        completed: 0,
+                        total: sortedSymbols.length
+                    };
+
+                    console.log(`🚀 Auto-analyzing ${sortedSymbols.length} symbols (${vn30Symbols.length} VN30 priority)...`);
+                    console.log(`⏱️ Sequential mode: 2s delay between requests (~${Math.ceil(sortedSymbols.length * 2 / 60)} minutes total)`);
+
+                    // Process sequentially with delay
+                    await this.analyzeBatch(sortedSymbols);
+
+                    this.autoAnalyzing = false;
+                    console.log(`✅ Completed auto-analysis: ${this.analyzingProgress.completed}/${this.analyzingProgress.total}`);
+                },
+
+                async analyzeBatch(symbols) {
+                    // Sequential processing with 2s delay to avoid rate limiting
+                    for (let i = 0; i < symbols.length; i++) {
+                        const item = symbols[i];
+
+                        try {
+                            await this.analyzeSymbolSilent(item);
+                            this.analyzingProgress.completed++;
+                        } catch (err) {
+                            console.error(`❌ Error analyzing ${item.symbol}:`, err);
+                            this.analyzingProgress.completed++;
+                        }
+
+                        // Add 2s delay between requests (except for the last one)
+                        if (i < symbols.length - 1) {
+                            await new Promise(resolve => setTimeout(resolve, 2000));
+                        }
+                    }
+                },
+
+                async analyzeSymbolSilent(item) {
+                    if (item.analyzing || item.analysis) return; // Skip if already analyzing or analyzed
+
                     item.analyzing = true;
                     item.analysisError = null;
 
                     try {
-                        console.log(`🔍 Analyzing ${item.symbol}...`);
                         const response = await fetch(`/api/analyze/${item.symbol}`);
                         const result = await response.json();
 
-                        console.log(`📊 Response for ${item.symbol}:`, result);
-
                         if (result.success) {
-                            // Force reactivity by reassigning the whole object
                             Object.assign(item, {
                                 ...item,
                                 analysis: result.data,
                                 analyzing: false,
                                 analysisError: null
                             });
-                            console.log(`✅ Analysis complete for ${item.symbol}: ${result.data.tier_label}`);
-
-                            // Force Vue to re-render
-                            this.$forceUpdate();
+                            console.log(`✅ [${this.analyzingProgress.completed + 1}/${this.analyzingProgress.total}] ${item.symbol}: ${result.data.tier_label}`);
                         } else {
                             item.analysisError = result.error || 'Analysis failed';
                             item.analyzing = false;
-                            console.error(`❌ Analysis failed for ${item.symbol}:`, result.error);
                         }
                     } catch (error) {
                         item.analysisError = error.message;
                         item.analyzing = false;
-                        console.error(`❌ Error analyzing ${item.symbol}:`, error);
+                    }
+                },
+
+                // Manual price fetch (from button click)
+                async fetchPrice(item) {
+                    if (item.fetchingPrice) return;
+
+                    item.fetchingPrice = true;
+
+                    try {
+                        console.log(`💰 Fetching price for ${item.symbol}...`);
+                        const response = await fetch(`/api/stocks/prices?symbols=${item.symbol}&force=1`);
+                        const result = await response.json();
+
+                        if (result.success && result.data[item.symbol]) {
+                            const priceInfo = result.data[item.symbol];
+                            item.price = priceInfo.price;
+                            item.changePercent = priceInfo.changePercent;
+                            item.priceError = priceInfo.error;
+                            console.log(`✅ Price updated for ${item.symbol}: ${priceInfo.price}`);
+                        } else {
+                            item.priceError = 'Failed to fetch price';
+                            console.error(`❌ Price fetch failed for ${item.symbol}`);
+                        }
+                    } catch (error) {
+                        item.priceError = error.message;
+                        console.error(`❌ Error fetching price for ${item.symbol}:`, error);
+                    } finally {
+                        item.fetchingPrice = false;
                     }
                 },
 
@@ -656,10 +742,10 @@
                     return colors[level] || 'grey';
                 },
 
-                getAnalyzeButtonTooltip(item) {
-                    if (item.analyzing) return 'Đang phân tích...';
-                    if (item.analysis) return 'Làm mới';
-                    return 'Phân tích';
+                getPriceButtonTooltip(item) {
+                    if (item.fetchingPrice) return 'Đang lấy giá...';
+                    if (item.price) return 'Cập nhật giá';
+                    return 'Lấy giá';
                 }
             },
         });

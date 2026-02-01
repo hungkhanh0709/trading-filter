@@ -1,23 +1,33 @@
 """
 MA Analyzer - Phân tích Moving Average (Đường trung bình động)
+
+Uses EMA (Exponential Moving Average) to match TradingView default.
+EMA reacts faster to recent price changes compared to SMA.
 """
 
 class MAAnalyzer:
     """
     Chuyên phân tích Moving Average
     
-    Hỗ trợ phương pháp đầu tư theo MA:
-    - Perfect Order (MA5>MA10>MA20>MA50)
+    Hỗ trợ phương pháp đầu tư theo MA (KHÔNG dùng MA5 - quá ngắn hạn):
+    - Perfect Order (MA10>MA20>MA50)
     - MA Convergence (tích luỹ trước breakout)
     - MA Expansion (xoè ra - xu hướng mạnh)
-    - Golden Cross (nhiều mức độ uy tín)
+    - Golden Cross (MA10xMA20, MA20xMA50)
     - Sell Warnings (cảnh báo bán sớm)
+    
+    Note: Dùng EMA (Exponential) thay vì SMA (Simple) để:
+    - Match với TradingView default
+    - Phản ứng nhanh hơn với price changes
+    - Chính xác hơn trong trend detection
     """
     
     def __init__(self, df):
         """
         Args:
-            df: DataFrame đã tính sẵn các MA (MA5, MA10, MA20, MA50)
+            df: DataFrame đã tính sẵn các MA (MA10, MA20, MA50)
+            Note: MA5 không được dùng vì quá nhạy với noise ngắn hạn
+                  Dùng EMA (Exponential MA) để match TradingView
         """
         self.df = df
     
@@ -43,8 +53,7 @@ class MAAnalyzer:
         
         latest = self.df.iloc[-1]
         
-        # Tính khoảng cách % giữa các MA
-        ma5 = latest['MA5']
+        # Tính khoảng cách % giữa các MA (KHÔNG dùng MA5 - quá nhạy)
         ma10 = latest['MA10']
         ma20 = latest['MA20']
         ma50 = latest['MA50']
@@ -57,25 +66,24 @@ class MAAnalyzer:
                 'message': 'MA50 = 0'
             }
         
-        # Khoảng cách % so với MA50
-        dist_5_50 = abs((ma5 - ma50) / ma50 * 100)
+        # Khoảng cách % so với MA50 (chỉ MA10 và MA20)
         dist_10_50 = abs((ma10 - ma50) / ma50 * 100)
         dist_20_50 = abs((ma20 - ma50) / ma50 * 100)
         
-        # Khoảng cách trung bình
-        avg_distance = (dist_5_50 + dist_10_50 + dist_20_50) / 3
+        # Khoảng cách trung bình (2 MA thay vì 3)
+        avg_distance = (dist_10_50 + dist_20_50) / 2
         
         # Convergence strength: 100 khi các MA xoắn sát nhau (< 1%)
-        # 0 khi các MA cách xa (> 10%)
-        convergence_strength = max(0, min(100, (10 - avg_distance) / 10 * 100))
+        # 0 khi các MA cách xa (> 8%)
+        convergence_strength = max(0, min(100, (8 - avg_distance) / 8 * 100))
         
-        is_converging = avg_distance < 5  # Các MA xoắn vào nhau khi cách nhau < 5%
+        is_converging = avg_distance < 4  # Các MA xoắn vào nhau khi cách nhau < 4% (tighter threshold)
         
-        if avg_distance < 2:
+        if avg_distance < 1.5:
             message = f"⚡ MA siêu xoắn (TB: {avg_distance:.1f}%) - Breakout sắp xảy ra!"
-        elif avg_distance < 5:
+        elif avg_distance < 4:
             message = f"🔄 MA đang tích luỹ (TB: {avg_distance:.1f}%) - Theo dõi breakout"
-        elif avg_distance < 10:
+        elif avg_distance < 8:
             message = f"➕ MA gần nhau (TB: {avg_distance:.1f}%)"
         else:
             message = f"↔️ MA cách xa (TB: {avg_distance:.1f}%)"
@@ -111,8 +119,8 @@ class MAAnalyzer:
         
         latest = self.df.iloc[-1]
         
-        # Kiểm tra Perfect Order
-        perfect_order = (latest['MA5'] > latest['MA10'] > latest['MA20'] > latest['MA50'])
+        # Kiểm tra Perfect Order (MA10 > MA20 > MA50, KHÔNG dùng MA5)
+        perfect_order = (latest['MA10'] > latest['MA20'] > latest['MA50'])
         
         if not perfect_order:
             return {
@@ -123,7 +131,7 @@ class MAAnalyzer:
                 'message': '❌ Không có Perfect Order'
             }
         
-        # Tính khoảng cách giữa các MA (% so với MA50)
+        # Tính khoảng cách giữa các MA (% so với MA50, KHÔNG dùng MA5)
         ma50 = latest['MA50']
         if ma50 == 0:
             return {
@@ -134,12 +142,10 @@ class MAAnalyzer:
                 'message': 'MA50 = 0'
             }
         
-        dist_5_50 = (latest['MA5'] - ma50) / ma50 * 100
         dist_10_50 = (latest['MA10'] - ma50) / ma50 * 100
         dist_20_50 = (latest['MA20'] - ma50) / ma50 * 100
         
         distances = {
-            'ma5_ma50': dist_5_50,
             'ma10_ma50': dist_10_50,
             'ma20_ma50': dist_20_50
         }
@@ -151,19 +157,19 @@ class MAAnalyzer:
         else:
             ma50_slope = 0
         
-        # Đánh giá expansion quality
-        if dist_5_50 > 8 and dist_20_50 > 3 and ma50_slope > 2:
+        # Đánh giá expansion quality (dựa vào MA10 thay vì MA5)
+        if dist_10_50 > 6 and dist_20_50 > 3 and ma50_slope > 2:
             expansion_quality = 'PERFECT'
-            message = f"🚀 Perfect Expansion! MA xoè rộng (MA5 +{dist_5_50:.1f}%, MA20 +{dist_20_50:.1f}%) | MA50 slope +{ma50_slope:.1f}%"
-        elif dist_5_50 > 5 and dist_20_50 > 2 and ma50_slope > 1:
+            message = f"🚀 Perfect Expansion! MA xoè rộng (MA10 +{dist_10_50:.1f}%, MA20 +{dist_20_50:.1f}%) | MA50 slope +{ma50_slope:.1f}%"
+        elif dist_10_50 > 4 and dist_20_50 > 2 and ma50_slope > 1:
             expansion_quality = 'GOOD'
-            message = f"✅ MA đang xoè ra (MA5 +{dist_5_50:.1f}%, MA20 +{dist_20_50:.1f}%) | MA50 slope +{ma50_slope:.1f}%"
-        elif dist_5_50 > 3:
+            message = f"✅ MA đang xoè ra (MA10 +{dist_10_50:.1f}%, MA20 +{dist_20_50:.1f}%) | MA50 slope +{ma50_slope:.1f}%"
+        elif dist_10_50 > 2:
             expansion_quality = 'WEAK'
-            message = f"➕ MA xoè yếu (MA5 +{dist_5_50:.1f}%, MA20 +{dist_20_50:.1f}%) | MA50 slope +{ma50_slope:.1f}%"
+            message = f"➕ MA xoè yếu (MA10 +{dist_10_50:.1f}%, MA20 +{dist_20_50:.1f}%) | MA50 slope +{ma50_slope:.1f}%"
         else:
             expansion_quality = 'WEAK'
-            message = f"⚠️ Perfect Order nhưng MA chưa xoè rõ (MA5 +{dist_5_50:.1f}%)"
+            message = f"⚠️ Perfect Order nhưng MA chưa xoè rõ (MA10 +{dist_10_50:.1f}%)"
         
         return {
             'is_expanding': expansion_quality in ['PERFECT', 'GOOD'],
@@ -197,30 +203,21 @@ class MAAnalyzer:
         if len(self.df) >= 2:
             prev = self.df.iloc[-2]
             
-            # MA5 x MA10 (Golden Cross ngắn hạn - 3 điểm)
-            if prev['MA5'] <= prev['MA10'] and latest['MA5'] > latest['MA10']:
-                crosses.append({
-                    'type': 'MA5_MA10',
-                    'label': 'Golden Cross ngắn hạn',
-                    'score': 3,
-                    'icon': '🟡'
-                })
-            
-            # MA10 x MA20 (Golden Cross trung hạn - 5 điểm)
+            # MA10 x MA20 (Golden Cross ngắn hạn - 6 điểm)
             if prev['MA10'] <= prev['MA20'] and latest['MA10'] > latest['MA20']:
                 crosses.append({
                     'type': 'MA10_MA20',
-                    'label': 'Golden Cross trung hạn',
-                    'score': 5,
+                    'label': 'Golden Cross ngắn hạn',
+                    'score': 6,
                     'icon': '🟠'
                 })
             
-            # MA20 x MA50 (Golden Cross uy tín - 7 điểm) - QUAN TRỌNG NHẤT
+            # MA20 x MA50 (Golden Cross UY TÍN - 10 điểm) - QUAN TRỌNG NHẤT
             if prev['MA20'] <= prev['MA50'] and latest['MA20'] > latest['MA50']:
                 crosses.append({
                     'type': 'MA20_MA50',
                     'label': 'Golden Cross UY TÍN',
-                    'score': 7,
+                    'score': 10,
                     'icon': '🏆'
                 })
         
@@ -239,6 +236,88 @@ class MAAnalyzer:
             'crosses': crosses,
             'best_cross': best_cross,
             'message': message
+        }
+    
+    def _detect_tight_convergence(self, convergence, sell_warning):
+        """
+        Phát hiện MA SIÊU XOẮN - Dấu hiệu breakout sắp xảy ra
+        
+        Đây là insight quan trọng: khi MA xoắn rất sát nhau, chỉ cần 1 phiên
+        breakout là có thể chuyển sang Perfect Order hoặc tăng mạnh.
+        
+        Điều kiện:
+        - Convergence strength > 75% (MA siêu xoắn)
+        - Giá > MA50 (đang trong xu hướng tăng)
+        - Perfect Order = True HOẶC gần đạt (MA10 > MA20 gần bằng MA50)
+        - KHÔNG có sell warning CRITICAL (death cross thật sự)
+        
+        Args:
+            convergence: Kết quả từ _detect_convergence()
+            sell_warning: Kết quả từ _detect_sell_warning()
+            
+        Returns:
+            dict: {
+                'is_tight': bool,
+                'strength': float,
+                'message': str,
+                'suggested_action': str
+            }
+        """
+        if self.df is None or len(self.df) < 50:
+            return {
+                'is_tight': False,
+                'strength': 0,
+                'message': '',
+                'suggested_action': 'WAIT'
+            }
+        
+        latest = self.df.iloc[-1]
+        price = latest['close']
+        ma10 = latest['MA10']
+        ma20 = latest['MA20']
+        ma50 = latest['MA50']
+        
+        # Điều kiện 1: Convergence strength > 75% (siêu xoắn)
+        strength = convergence.get('convergence_strength', 0)
+        if strength < 75:
+            return {'is_tight': False, 'strength': strength, 'message': '', 'suggested_action': 'WAIT'}
+        
+        # Điều kiện 2: Giá > MA50 (trong uptrend)
+        if price <= ma50:
+            return {'is_tight': False, 'strength': strength, 'message': '', 'suggested_action': 'WAIT'}
+        
+        # Điều kiện 3: Perfect Order HOẶC gần đạt HOẶC convergence CỰC mạnh
+        # Khi convergence > 95%, MA đã xoắn CỰC sát → không cần Perfect Order
+        # VD: TPB với strength 97.6%, avg_dist 0.19% = MA gần như chạm nhau!
+        perfect_order = (ma10 > ma20 > ma50)
+        near_perfect_order = (ma10 > ma20 and ma20 >= ma50 * 0.998)  # MA20 gần MA50 trong 0.2%
+        ultra_tight = (strength >= 95)  # Convergence CỰC mạnh, không cần PO
+        
+        if not (perfect_order or near_perfect_order or ultra_tight):
+            return {'is_tight': False, 'strength': strength, 'message': '', 'suggested_action': 'WAIT'}
+        
+        # Điều kiện 4: KHÔNG có death cross (CRITICAL sell warning)
+        has_critical_warning = sell_warning.get('has_warning') and sell_warning.get('warning_level') == 'CRITICAL'
+        if has_critical_warning:
+            return {'is_tight': False, 'strength': strength, 'message': '', 'suggested_action': 'WAIT'}
+        
+        # Passed all conditions!
+        avg_dist = convergence.get('avg_distance', 0)
+        
+        # Message based on strength
+        if strength >= 90:
+            message = f"⚡⚡ MA SIÊU SIÊU XOẮN ({strength:.0f}%, TB: {avg_dist:.2f}%) - Breakout CỰC GẦN!"
+            suggested_action = 'WATCH_CLOSELY'
+        else:
+            message = f"⚡ MA SIÊU XOẮN ({strength:.0f}%, TB: {avg_dist:.1f}%) - Breakout sắp xảy ra"
+            suggested_action = 'WATCH'
+        
+        return {
+            'is_tight': True,
+            'strength': strength,
+            'avg_distance': avg_dist,
+            'message': message,
+            'suggested_action': suggested_action
         }
     
     def _detect_sell_warning(self):
@@ -267,8 +346,8 @@ class MAAnalyzer:
         warning_level = 'LOW'
         suggested_action = 'HOLD'
         
-        # Kiểm tra Perfect Order trước
-        was_in_perfect_order = (latest['MA5'] > latest['MA10'] > latest['MA20'] > latest['MA50'])
+        # Kiểm tra Perfect Order trước (KHÔNG dùng MA5)
+        was_in_perfect_order = (latest['MA10'] > latest['MA20'] > latest['MA50'])
         
         if len(self.df) >= 2:
             prev = self.df.iloc[-2]
@@ -279,9 +358,9 @@ class MAAnalyzer:
                 warning_level = 'CRITICAL'
                 suggested_action = 'SELL_ALL'
             
-            # HIGH: MA5 cắt xuống MA10 (Death Cross ngắn hạn)
-            elif prev['MA5'] >= prev['MA10'] and latest['MA5'] < latest['MA10']:
-                warnings.append('⚠️ MA5 cắt xuống MA10 - Cân nhắc bán 50%')
+            # HIGH: MA10 cắt xuống MA20 (Death Cross ngắn hạn - đáng tin hơn MA5xMA10)
+            elif prev['MA10'] >= prev['MA20'] and latest['MA10'] < latest['MA20']:
+                warnings.append('⚠️ MA10 cắt xuống MA20 - Cân nhắc bán 50%')
                 if warning_level == 'LOW':
                     warning_level = 'HIGH'
                     suggested_action = 'SELL_HALF'
@@ -349,7 +428,8 @@ class MAAnalyzer:
         reasons = []
         
         # === 1. PHÂN TÍCH PERFECT ORDER & MA EXPANSION ===
-        perfect_order = (latest['MA5'] > latest['MA10'] > latest['MA20'] > latest['MA50'])
+        # Perfect Order KHÔNG dùng MA5 (quá nhạy với noise)
+        perfect_order = (latest['MA10'] > latest['MA20'] > latest['MA50'])
         expansion = self._detect_expansion()
         
         if perfect_order:
@@ -362,12 +442,11 @@ class MAAnalyzer:
             else:
                 score += 3
                 reasons.append("✅ Perfect Order nhưng MA chưa xoè rõ")
-        elif (latest['MA5'] > latest['MA10'] > latest['MA20']):
-            score += 3
-            reasons.append("✅ MA tốt (MA5>MA10>MA20)")
-        elif (latest['MA5'] > latest['MA10']):
-            score += 1
-            reasons.append("➕ MA ngắn hạn tích cực")
+        elif (latest['MA10'] > latest['MA20']):
+            score += 2
+            reasons.append("➕ MA ngắn hạn tích cực (MA10>MA20)")
+        else:
+            reasons.append("⚠️ Chưa có Perfect Order")
         
         # === 2. PHÂN TÍCH VỊ TRÍ GIÁ SO VỚI MA ===
         ma50 = latest['MA50']
@@ -419,6 +498,27 @@ class MAAnalyzer:
         # === 5. CẢNH BÁO BÁN ===
         sell_warning = self._detect_sell_warning()
         
+        # === 5.5. TIGHT CONVERGENCE (MA siêu xoắn) ===
+        tight_convergence = self._detect_tight_convergence(convergence, sell_warning)
+        
+        if tight_convergence['is_tight']:
+            # MA siêu xoắn là dấu hiệu tích cực - OVERRIDE sell warning MEDIUM
+            # Vì giá tạm xuống MA10/MA20 trong lúc tích luỹ là bình thường
+            if sell_warning.get('warning_level') in ['MEDIUM', 'LOW']:
+                score += 2  # Bonus cho tight convergence
+                reasons.append(tight_convergence['message'])
+                reasons.append(f"👀 Đề xuất: {tight_convergence['suggested_action']} - Theo dõi breakout!")
+                # Override sell warning
+                sell_warning = {
+                    'has_warning': False,
+                    'warning_level': 'LOW',
+                    'warnings': [],
+                    'suggested_action': 'WATCH'
+                }
+            else:
+                # Có tight convergence nhưng cũng có HIGH/CRITICAL warning
+                reasons.append(tight_convergence['message'])
+        
         if sell_warning['has_warning']:
             # Giảm điểm nếu có cảnh báo
             if sell_warning['warning_level'] == 'CRITICAL':
@@ -459,33 +559,58 @@ class MAAnalyzer:
                 'convergence': convergence,
                 'golden_cross': golden_cross,
                 'sell_warning': sell_warning,
+                'tight_convergence': tight_convergence,
                 'price_position': price_position
             },
             # UI-READY FORMAT (Backend-driven UI pattern)
-            'ui_alerts': self._format_ui_alerts(sell_warning, convergence, golden_cross, expansion)
+            'ui_alerts': self._format_ui_alerts(sell_warning, convergence, golden_cross, expansion, tight_convergence)
         }
     
-    def _format_ui_alerts(self, sell_warning, convergence, golden_cross, expansion):
+    def _format_ui_alerts(self, sell_warning, convergence, golden_cross, expansion, tight_convergence):
         """
         Format MA alerts for UI rendering (Backend-driven pattern)
         UI chỉ cần v-for loop qua array này, không cần business logic
+        
+        CRITICAL RULES (UPDATED v2):
+        1. Alerts phải phản ánh chính xác trạng thái thị trường
+        2. Convergence CHỈ tích cực KHI đang trong uptrend (giá > MA50)
+        3. Tránh mâu thuẫn: Sell Warning → loại bỏ tín hiệu mua
+        4. TIGHT CONVERGENCE (MA siêu xoắn) override sell_warning MEDIUM - đây là insight quan trọng!
+        5. Priority: Sell Warning CRITICAL > Tight Convergence > Expansion > Weak Uptrend > Golden Cross > Convergence
         
         Args:
             sell_warning: Sell warning detection result
             convergence: Convergence detection result
             golden_cross: Golden cross detection result
             expansion: Expansion detection result
+            tight_convergence: Tight convergence detection result
             
         Returns:
             list: Array of UI-ready alert objects sorted by priority
         """
         alerts = []
+        has_critical_warning = sell_warning.get('has_warning') and sell_warning.get('warning_level') in ['CRITICAL', 'HIGH']
+        
+        # Get current market state from self.df
+        in_uptrend = False
+        perfect_order = False
+        price_above_ma50_pct = 0
+        
+        if hasattr(self, 'df') and self.df is not None and len(self.df) > 0:
+            latest = self.df.iloc[-1]
+            price = latest['close']
+            ma50 = latest['MA50']
+            
+            # Perfect Order KHÔNG dùng MA5 (quá nhạy)
+            perfect_order = (latest['MA10'] > latest['MA20'] > latest['MA50'])
+            in_uptrend = price > ma50  # Uptrend = giá trên MA50
+            price_above_ma50_pct = (price - ma50) / ma50 * 100 if ma50 > 0 else 0
         
         # 1. SELL WARNING - Highest priority (action required!)
+        # NOTE: MEDIUM level có thể bị override bởi tight_convergence ở analyze()
         if sell_warning.get('has_warning'):
             level = sell_warning.get('warning_level', 'MEDIUM')
             
-            # Build tooltip HTML
             warnings_html = '<br>'.join([f'• {w}' for w in sell_warning.get('warnings', [])])
             tooltip = (
                 f"<strong>🚨 CẢNH BÁO BÁN ({level})</strong><br>"
@@ -497,43 +622,98 @@ class MAAnalyzer:
                 'type': 'sell_warning',
                 'priority': 1,
                 'icon': 'mdi-alert',
-                'color': 'error' if level == 'HIGH' else 'warning',
-                'size': 'default' if level == 'HIGH' else 'small',
-                'animation': 'pulse-animation' if level == 'HIGH' else '',
+                'color': 'error' if level in ['CRITICAL', 'HIGH'] else 'warning',
+                'size': 'default' if level in ['CRITICAL', 'HIGH'] else 'small',
+                'animation': 'pulse-animation' if level in ['CRITICAL', 'HIGH'] else '',
                 'tooltip': tooltip
             })
         
-        # 2. CONVERGENCE - Breakout signal (prepare to buy!)
-        if convergence.get('is_converging'):
+        # 1.5. TIGHT CONVERGENCE - MA siêu xoắn, insight quan trọng!
+        # Priority cao hơn expansion vì đây là DỰ BÁO về breakout sắp xảy ra
+        if tight_convergence.get('is_tight'):
+            strength = tight_convergence.get('strength', 0)
+            avg_dist = tight_convergence.get('avg_distance', 0)
+            action = tight_convergence.get('suggested_action', 'WATCH')
+            
+            # Emoji based on strength
+            emoji = '⚡⚡⚡' if strength >= 95 else '⚡⚡' if strength >= 85 else '⚡'
+            
             tooltip = (
-                f"<strong>🔄 BREAKOUT SẮP XẢY RA (MA Convergence)</strong><br>"
-                f"<span style='color: #9c27b0; font-weight: 600;'>⚡ Chuẩn bị điểm mua tốt!</span><br>"
-                f"Khoảng cách TB: {convergence.get('avg_distance', 0):.1f}%<br>"
-                f"{convergence.get('message', '')}"
+                f"<strong>{emoji} MA SIÊU XOẮN - Breakout sắp xảy ra!</strong><br>"
+                f"<span style='color: #FF6F00; font-weight: 600;'>Độ mạnh: {strength:.0f}/100</span><br>"
+                f"Khoảng cách TB: {avg_dist:.2f}%<br>"
+                f"<div style='margin-top: 4px; color: #FFA726;'>👀 Theo dõi sát, chỉ cần 1 phiên breakout!</div>"
+                f"<div style='font-weight: 600; margin-top: 4px;'>📊 Đề xuất: {action}</div>"
             )
             
             alerts.append({
-                'type': 'convergence',
+                'type': 'tight_convergence',
+                'priority': 1.5,
+                'icon': 'mdi-flash-alert',
+                'color': 'deep-orange',
+                'size': 'default' if strength >= 90 else 'small',
+                'animation': 'pulse-animation' if strength >= 90 else '',
+                'tooltip': tooltip
+            })
+        
+        # 2. EXPANSION - Strong uptrend (explain S/A tier)
+        if expansion.get('is_expanding'):
+            quality = expansion.get('expansion_quality', 'WEAK')
+            distances = expansion.get('distances', {})
+            ma50_slope = expansion.get('ma50_slope', 0)
+            
+            tooltip = (
+                f"<strong>🚀 MA EXPANSION - Uptrend mạnh</strong><br>"
+                f"<span style='color: #4CAF50; font-weight: 600;'>Mức độ: {quality}</span><br>"
+                f"MA10 cách MA50: +{distances.get('ma10_ma50', 0):.1f}%<br>"
+                f"MA20 cách MA50: +{distances.get('ma20_ma50', 0):.1f}%<br>"
+                f"MA50 slope: +{ma50_slope:.1f}%<br>"
+                f"<div style='margin-top: 4px; color: #66BB6A;'>✅ Xu hướng tăng rõ ràng, có thể giữ tiếp</div>"
+            )
+            
+            alerts.append({
+                'type': 'expansion',
                 'priority': 2,
-                'icon': 'mdi-arrow-collapse',
-                'color': 'purple',
+                'icon': 'mdi-trending-up',
+                'color': 'success' if quality == 'PERFECT' else 'green',
+                'size': 'default' if quality == 'PERFECT' else 'small',
+                'animation': '',
+                'tooltip': tooltip
+            })
+        
+        # 3. WEAK UPTREND - Price > MA50 but not Perfect Order (explain A/B tier)
+        # Chỉ hiển thị nếu chưa có expansion và đang trong uptrend
+        if len(alerts) == 0 and in_uptrend and not perfect_order:
+            tooltip = (
+                f"<strong>📈 UPTREND YẾU - Giá trên MA50</strong><br>"
+                f"<span style='color: #2196F3; font-weight: 600;'>Giá cách MA50: +{price_above_ma50_pct:.1f}%</span><br>"
+                f"⚠️ Chưa có Perfect Order<br>"
+                f"<div style='margin-top: 4px; color: #42A5F5;'>➕ Xu hướng tăng yếu, theo dõi tiếp</div>"
+            )
+            
+            alerts.append({
+                'type': 'weak_uptrend',
+                'priority': 3,
+                'icon': 'mdi-chevron-triple-up',
+                'color': 'blue',
                 'size': 'small',
                 'animation': '',
                 'tooltip': tooltip
             })
         
-        # 3. GOLDEN CROSS - Buy signal (can buy)
-        if golden_cross.get('best_cross'):
+        # 4. GOLDEN CROSS - Buy signal (only if no critical warning)
+        if golden_cross.get('best_cross') and not has_critical_warning:
             cross = golden_cross['best_cross']
             tooltip = (
-                f"<strong>⭐ Golden Cross - Có thể mua</strong><br>"
-                f"{cross.get('label', '')}<br>"
-                f"Credibility: {cross.get('credibility_points', 0)} pts"
+                f"<strong>⭐ GOLDEN CROSS - Tín hiệu mua</strong><br>"
+                f"{cross.get('icon', '')} {cross.get('label', '')}<br>"
+                f"Điểm uy tín: {cross.get('score', 0)}/10<br>"
+                f"<div style='margin-top: 4px; color: #FFA726;'>✅ Có thể mua, theo dõi tiếp</div>"
             )
             
             alerts.append({
                 'type': 'golden_cross',
-                'priority': 3,
+                'priority': 4,
                 'icon': 'mdi-star-circle',
                 'color': 'amber',
                 'size': 'small',
@@ -541,20 +721,58 @@ class MAAnalyzer:
                 'tooltip': tooltip
             })
         
-        # 4. EXPANSION - Uptrend confirmation (hold)
-        if expansion.get('is_expanding'):
-            quality = expansion.get('expansion_quality', 'WEAK')
+        # 5. CONVERGENCE - CHỈ có ý nghĩa tích cực KHI trong uptrend NHƯNG chưa Perfect Order
+        # KHÔNG hiển thị nếu:
+        # - Có critical warning (mâu thuẫn)
+        # - KHÔNG trong uptrend (convergence trong sideway/downtrend = không rõ hướng)
+        # - ĐÃ có Perfect Order (mâu thuẫn - Perfect Order nghĩa là MA đã xếp rõ, không còn converging)
+        if (convergence.get('is_converging') and 
+            not has_critical_warning and 
+            in_uptrend and 
+            not perfect_order):
+            
+            avg_dist = convergence.get('avg_distance', 0)
+            strength = convergence.get('convergence_strength', 0)
+            
             tooltip = (
-                f"<strong>📈 MA Expansion - Giữ tiếp</strong><br>"
-                f"Mức độ: {quality}<br>"
-                f"{expansion.get('message', '')}"
+                f"<strong>🔄 MA CONVERGENCE - Tích luỹ trong uptrend</strong><br>"
+                f"<span style='color: #9C27B0; font-weight: 600;'>Độ mạnh: {strength:.0f}/100</span><br>"
+                f"Khoảng cách TB: {avg_dist:.1f}%<br>"
+                f"<div style='margin-top: 4px; color: #AB47BC;'>⚡ Tích luỹ, chuẩn bị breakout lên</div>"
             )
             
             alerts.append({
-                'type': 'expansion',
-                'priority': 4,
-                'icon': 'mdi-arrow-expand',
-                'color': 'green' if quality == 'STRONG' else 'blue',
+                'type': 'convergence',
+                'priority': 5,
+                'icon': 'mdi-arrow-collapse',
+                'color': 'purple',
+                'size': 'small',
+                'animation': '',
+                'tooltip': tooltip
+            })
+        
+        # 6. PERFECT ORDER - Default positive signal (explain S/A/B tier)
+        # Hiển thị nếu:
+        # - Chưa có alert nào HOẶC
+        # - Có Perfect Order nhưng chỉ có convergence (mâu thuẫn, ưu tiên Perfect Order)
+        show_perfect_order = (len(alerts) == 0 and perfect_order) or \
+                             (perfect_order and len(alerts) == 1 and alerts[0]['type'] == 'convergence')
+        
+        if show_perfect_order:
+            # Xóa convergence nếu có (mâu thuẫn với Perfect Order)
+            alerts = [a for a in alerts if a['type'] != 'convergence']
+            tooltip = (
+                f"<strong>✅ PERFECT ORDER - Xu hướng tốt</strong><br>"
+                f"MA10 > MA20 > MA50<br>"
+                f"Giá cách MA50: +{price_above_ma50_pct:.1f}%<br>"
+                f"<div style='margin-top: 4px; color: #2196F3;'>📈 Xu hướng tăng, theo dõi tiếp</div>"
+            )
+            
+            alerts.append({
+                'type': 'perfect_order',
+                'priority': 6,
+                'icon': 'mdi-check-circle',
+                'color': 'blue',
                 'size': 'small',
                 'animation': '',
                 'tooltip': tooltip

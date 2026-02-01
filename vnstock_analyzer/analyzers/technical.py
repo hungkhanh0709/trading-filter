@@ -42,15 +42,16 @@ class TechnicalAnalyzer:
             self.pattern_analyzer = PatternAnalyzer(self.df)
         
     def _calculate_indicators(self):
-        """Tính các chỉ báo kỹ thuật (giữ nguyên logic cũ)"""
+        """Tính các chỉ báo kỹ thuật - Dùng EMA để match TradingView"""
         if self.df is None or len(self.df) == 0:
             return
         
-        # Moving Averages
-        self.df['MA5'] = self.df['close'].rolling(5).mean()
-        self.df['MA10'] = self.df['close'].rolling(10).mean()
-        self.df['MA20'] = self.df['close'].rolling(20).mean()
-        self.df['MA50'] = self.df['close'].rolling(50).mean()
+        # Moving Averages - EMA (Exponential) thay vì SMA (Simple)
+        # EMA phản ứng nhanh hơn, match với TradingView default
+        self.df['MA5'] = self.df['close'].ewm(span=5, adjust=False).mean()
+        self.df['MA10'] = self.df['close'].ewm(span=10, adjust=False).mean()
+        self.df['MA20'] = self.df['close'].ewm(span=20, adjust=False).mean()
+        self.df['MA50'] = self.df['close'].ewm(span=50, adjust=False).mean()
 
         # RSI
         delta = self.df['close'].diff()
