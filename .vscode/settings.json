@@ -1,0 +1,74 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "npm install": true,
+        "/^cd /Users/khanhto/Documents/Projects/trading/trading-filter && \\.venv/bin/python -c \"\nfrom vnstock_analyzer\\.core import DataFetcher\nfetcher = DataFetcher\\('HDB'\\)\nsuccess = fetcher\\.fetch_all_data\\(\\)\nprint\\(f'\\\\nTest result: \\{\\\\\"✅ PASS\\\\\" if success else \\\\\"❌ FAIL\\\\\"\\}'\\)\nprint\\(f'History data: \\{len\\(fetcher\\.get_data\\(\\\\\"history\\\\\"\\)\\)\\} rows'\\)\n\" 2>&1 \\| tail -15$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\.venv/bin/python scripts/analyze_stock\\.py FPT 2>&1 \\| grep -A 50 \"📊 BÁO CÁO\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^mv stock_scorer\\.py stock_scorer\\.py\\.old$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^source \\.venv/bin/activate && python debug_vnstock\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python debug_vnstock\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python test_quote_methods\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python test_vci_deep\\.py 2>&1 \\| head -150$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python test_advanced_search\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python test_trading_stats\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python analyze_foreign_data\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python test_foreign_buy_sell\\.py 2>&1 \\| head -200$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd /Users/khanhto/Documents/Projects/trading/trading-filter && python -c \"\nfrom vnstock import Vnstock\nimport pandas as pd\n\n# Thử tìm trong documentation/source code\nstock = Vnstock\\(\\)\\.stock\\('VIC', source='VCI'\\)\n\n# Check thêm methods có thể bị hidden\nprint\\('=== ALL QUOTE ATTRIBUTES ==='\\)\nfor attr in dir\\(stock\\.quote\\):\n    if not attr\\.startswith\\('_'\\):\n        try:\n            obj = getattr\\(stock\\.quote, attr\\)\n            if callable\\(obj\\):\n                print\\(f'\\{attr\\}\\(\\) - callable'\\)\n            else:\n                print\\(f'\\{attr\\} = \\{type\\(obj\\)\\.__name__\\}'\\)\n        except:\n            pass\n\nprint\\('\\\\n=== ALL COMPANY ATTRIBUTES ==='\\)\nfor attr in dir\\(stock\\.company\\):\n    if not attr\\.startswith\\('_'\\):\n        try:\n            obj = getattr\\(stock\\.company, attr\\)\n            if callable\\(obj\\):\n                print\\(f'\\{attr\\}\\(\\) - callable'\\)\n            else:\n                print\\(f'\\{attr\\} = \\{type\\(obj\\)\\.__name__\\}'\\)\n        except:\n            pass\n\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd /Users/khanhto/Documents/Projects/trading/trading-filter && python -c \"\nfrom vnstock import Vnstock\nimport pandas as pd\n\npd\\.set_option\\('display\\.max_columns', None\\)\npd\\.set_option\\('display\\.width', 200\\)\n\nstock = Vnstock\\(\\)\\.stock\\('VIC', source='VCI'\\)\n\nprint\\('=== PRICE DEPTH \\(Order book\\) ==='\\)\ndepth = stock\\.quote\\.price_depth\\(\\)\nprint\\(f'Columns: \\{list\\(depth\\.columns\\)\\}'\\)\nprint\\(depth\\)\n\nprint\\('\\\\n=== TRADING STATS \\(Full display\\) ==='\\)\nstats = stock\\.company\\.trading_stats\\(\\)\nprint\\('All columns:'\\)\nfor col in stats\\.columns:\n    val = stats\\[col\\]\\.iloc\\[0\\]\n    print\\(f'\\{col\\}: \\{val\\}'\\)\n\" 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^/Users/khanhto/Documents/Projects/trading/trading-filter/\\.venv/bin/python research_money_flow\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^mv vnstock_analyzer/analyzers/technical\\.py vnstock_analyzer/analyzers/technical_old\\.py && mv vnstock_analyzer/analyzers/technical_new\\.py vnstock_analyzer/analyzers/technical\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node server\\.js &$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^source \\.venv/bin/activate && python scripts/analyze_stock\\.py VPL 2>/dev/null \\| python3 -c \"import sys, json; d=json\\.load\\(sys\\.stdin\\); tech=d\\['components'\\]\\['technical'\\]; ma=tech\\['criteria'\\]\\['ma_trend'\\]; print\\('Tier:', d\\['tier'\\]\\); print\\('UI Alerts:'\\); import json; \\[print\\(f\\\\\"  - \\{a\\['type'\\]\\}: \\{a\\['color'\\]\\} \\| \\{a\\.get\\('tooltip', ''\\)\\[:60\\]\\}\\.\\.\\.\\\\\"\\) for a in ma\\.get\\('ui_alerts', \\[\\]\\)\\]\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    },
+    "git.ignoreLimitWarning": true
+}
