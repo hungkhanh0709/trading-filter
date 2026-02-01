@@ -238,60 +238,54 @@
                                 </div>
                             </template>
 
-                            <!-- Tier Column -->
-                            <template v-slot:item.tier="{ item }">
-                                <div v-if="item.analyzing" class="text-center">
-                                    <v-progress-circular indeterminate size="20" width="2"
-                                        color="primary"></v-progress-circular>
-                                </div>
-                                <v-tooltip v-else-if="item.analysis" location="top">
+                            <!-- Perfect Order Column -->
+                            <template v-slot:item.perfect_order="{ item }">
+                                <v-tooltip v-if="item.analysis?.current_state?.details?.perfect_order !== undefined"
+                                    location="top">
                                     <template v-slot:activator="{ props }">
-                                        <v-chip v-bind="props" :color="getTierColor(item.analysis.tier)" size="small"
-                                            variant="flat">
-                                            {{ item.analysis.tier }}
-                                        </v-chip>
+                                        <v-icon v-bind="props" v-if="item.analysis.current_state.details.perfect_order"
+                                            icon="mdi-check-circle" color="success" size="small"></v-icon>
+                                        <v-icon v-bind="props" v-else icon="mdi-close-circle" color="grey"
+                                            size="small"></v-icon>
                                     </template>
-                                    <div style="max-width: 300px;">
-                                        <div><strong>{{ item.analysis.tier_label }}</strong></div>
-                                        <div>{{ item.analysis.recommendation }}</div>
-                                        <div class="mt-2" style="font-size: 0.85em;">
-                                            Kỹ thuật: {{ item.analysis.components?.technical?.status || '-' }}<br>
-                                            Cơ bản: {{ item.analysis.components?.fundamental?.status || '-' }}<br>
-                                            Thanh khoản: {{ item.analysis.components?.liquidity?.status || '-' }}
+                                    <div style="max-width: 250px;">
+                                        <div v-if="item.analysis.current_state.details.perfect_order">
+                                            <strong>✅ Perfect Order</strong><br>
+                                            MA10 > MA20 > MA50
+                                        </div>
+                                        <div v-else>
+                                            <strong>Vị trí giá:</strong><br>
+                                            vs MA50: {{
+                                            item.analysis.current_state.details.price_position?.vs_ma50?.toFixed(1)
+                                            }}%<br>
+                                            vs MA20: {{
+                                            item.analysis.current_state.details.price_position?.vs_ma20?.toFixed(1)
+                                            }}%<br>
+                                            vs MA10: {{
+                                            item.analysis.current_state.details.price_position?.vs_ma10?.toFixed(1) }}%
                                         </div>
                                     </div>
                                 </v-tooltip>
                                 <span v-else style="color: #999;">-</span>
                             </template>
 
-                            <!-- Perfect Order Column -->
-                            <template v-slot:item.perfect_order="{ item }">
-                                <v-tooltip v-if="item.analysis?.components?.technical?.criteria?.ma_trend"
-                                    location="top">
+                            <!-- Forecast Column - Simple icon with tooltip -->
+                            <template v-slot:item.forecast="{ item }">
+                                <v-tooltip v-if="item.analysis?.forecast?.scenario" location="top">
                                     <template v-slot:activator="{ props }">
-                                        <v-icon v-bind="props"
-                                            v-if="item.analysis.components.technical.criteria.ma_trend.details?.perfect_order"
-                                            icon="mdi-check-circle" color="success" size="small"></v-icon>
-                                        <v-icon v-bind="props" v-else icon="mdi-close-circle" color="grey"
-                                            size="small"></v-icon>
-                                    </template>
-                                    <div style="max-width: 250px;">
-                                        <div
-                                            v-if="item.analysis.components.technical.criteria.ma_trend.details?.perfect_order">
-                                            <strong>✅ Perfect Order</strong><br>
-                                            MA5 > MA10 > MA20 > MA50
+                                        <div v-bind="props" style="text-align: center; font-size: 1.2em; cursor: help;">
+                                            {{ getScenarioIcon(item.analysis.forecast.scenario.scenario) }}
                                         </div>
-                                        <div v-else>
-                                            <strong>Vị trí giá:</strong><br>
-                                            vs MA50: {{
-                                            item.analysis.components.technical.criteria.ma_trend.details?.price_position?.vs_ma50?.toFixed(1)
-                                            }}%<br>
-                                            vs MA20: {{
-                                            item.analysis.components.technical.criteria.ma_trend.details?.price_position?.vs_ma20?.toFixed(1)
-                                            }}%<br>
-                                            vs MA10: {{
-                                            item.analysis.components.technical.criteria.ma_trend.details?.price_position?.vs_ma10?.toFixed(1)
-                                            }}%
+                                    </template>
+                                    <div style="max-width: 350px;">
+                                        <div><strong>{{ item.analysis.recommendation }}</strong></div>
+                                        <div class="mt-1">{{ item.analysis.forecast.scenario.description }}</div>
+                                        <div class="mt-2"
+                                            style="font-size: 0.9em; border-top: 1px solid #555; padding-top: 8px;">
+                                            ⏱️ Timeframe: {{ item.analysis.forecast.scenario.timeframe }}<br>
+                                            📊 Probability: {{ item.analysis.forecast.scenario.probability }}<br>
+                                            <strong style="color: #FFA726;">💡 {{
+                                                item.analysis.forecast.scenario.action_plan }}</strong>
                                         </div>
                                     </div>
                                 </v-tooltip>
@@ -300,12 +294,11 @@
 
                             <!-- MA Alert Column - Backend-Driven UI Pattern -->
                             <template v-slot:item.ma_alert="{ item }">
-                                <div v-if="item.analysis?.components?.technical?.criteria?.ma_trend?.ui_alerts"
+                                <div v-if="item.analysis?.current_state?.ui_alerts?.length > 0"
                                     style="display: flex; gap: 4px; justify-content: center;">
                                     <!-- Simple v-for loop - No business logic! -->
-                                    <v-tooltip
-                                        v-for="alert in item.analysis.components.technical.criteria.ma_trend.ui_alerts"
-                                        :key="alert.type" location="top">
+                                    <v-tooltip v-for="alert in item.analysis.current_state.ui_alerts" :key="alert.type"
+                                        location="top">
                                         <template v-slot:activator="{ props }">
                                             <v-icon v-bind="props" :icon="alert.icon" :color="alert.color"
                                                 :size="alert.size" :class="alert.animation"></v-icon>
@@ -425,18 +418,18 @@
                         },
                         // MA Analysis columns
                         {
-                            title: 'Tier',
-                            key: 'tier',
-                            align: 'center',
-                            sortable: true,
-                            width: '80px'
-                        },
-                        {
-                            title: 'Perfect',
+                            title: 'Perfect Order',
                             key: 'perfect_order',
                             align: 'center',
                             sortable: true,
                             width: '70px'
+                        },
+                        {
+                            title: 'Forecast',
+                            key: 'forecast',
+                            align: 'center',
+                            sortable: true,
+                            width: '80px'
                         },
                         {
                             title: 'MA Alert',
@@ -663,7 +656,7 @@
                                 analyzing: false,
                                 analysisError: null
                             });
-                            console.log(`✅ [${this.analyzingProgress.completed + 1}/${this.analyzingProgress.total}] ${item.symbol}: ${result.data.tier_label}`);
+                            console.log(`✅ [${this.analyzingProgress.completed + 1}/${this.analyzingProgress.total}] ${item.symbol}: ${result.data.recommendation}`);;
                         } else {
                             item.analysisError = result.error || 'Analysis failed';
                             item.analyzing = false;
@@ -715,6 +708,42 @@
                         'F': 'cyan-darken-2'     // 🔵 Giảm sàn - Thất bại
                     };
                     return colors[tier] || 'grey';
+                },
+
+                getStatusColor(status) {
+                    const colors = {
+                        'EXCELLENT': 'success',
+                        'GOOD': 'green',
+                        'ACCEPTABLE': 'blue',
+                        'WARNING': 'orange',
+                        'POOR': 'error',
+                        'NA': 'grey'
+                    };
+                    return colors[status] || 'grey';
+                },
+
+                getStatusIcon(status) {
+                    const icons = {
+                        'EXCELLENT': '🔥',
+                        'GOOD': '✅',
+                        'ACCEPTABLE': '➕',
+                        'WARNING': '⚠️',
+                        'POOR': '❌',
+                        'NA': '⚪'
+                    };
+                    return icons[status] || '-';
+                },
+
+                getScenarioIcon(scenario) {
+                    const icons = {
+                        'STRONG_UPTREND': '🚀',
+                        'BREAKOUT_SOON': '⚡',
+                        'UPTREND_CONSOLIDATION': '📈',
+                        'SIDEWAY': '↔️',
+                        'DOWNTREND_WARNING': '⚠️',
+                        'STRONG_DOWNTREND': '📉'
+                    };
+                    return icons[scenario] || '?';
                 },
 
                 getRecommendationColor(recommendation) {

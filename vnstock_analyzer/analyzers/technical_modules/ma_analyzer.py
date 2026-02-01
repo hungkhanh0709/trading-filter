@@ -320,6 +320,275 @@ class MAAnalyzer:
             'suggested_action': suggested_action
         }
     
+    def _analyze_ma_momentum(self):
+        """
+        Phân tích momentum (tốc độ thay đổi) của từng MA để dự đoán xu hướng tương lai
+        
+        Momentum = slope của MA trong N ngày gần nhất (% change per day)
+        - MA10: 5 ngày (ngắn hạn, phản ứng nhanh)
+        - MA20: 10 ngày (trung hạn)
+        - MA50: 20 ngày (dài hạn, xu hướng chính)
+        
+        Returns:
+            dict: {
+                'ma10': {'slope': float, 'trend': str, 'strength': str},
+                'ma20': {'slope': float, 'trend': str, 'strength': str},
+                'ma50': {'slope': float, 'trend': str, 'strength': str},
+                'alignment': str (BULLISH_ALIGNED/MIXED/BEARISH_ALIGNED),
+                'summary': str
+            }
+        """
+        if self.df is None or len(self.df) < 50:
+            return {
+                'ma10': {'slope': 0, 'trend': 'NEUTRAL', 'strength': 'WEAK'},
+                'ma20': {'slope': 0, 'trend': 'NEUTRAL', 'strength': 'WEAK'},
+                'ma50': {'slope': 0, 'trend': 'NEUTRAL', 'strength': 'WEAK'},
+                'alignment': 'NEUTRAL',
+                'summary': 'Không đủ dữ liệu'
+            }
+        
+        latest = self.df.iloc[-1]
+        
+        def calc_ma_slope(ma_name, lookback_days):
+            """Tính slope của MA trong N ngày gần nhất"""
+            if len(self.df) < lookback_days:
+                return 0
+            
+            ma_current = latest[ma_name]
+            ma_past = self.df.iloc[-lookback_days][ma_name]
+            
+            if ma_past == 0:
+                return 0
+            
+            # % change per day
+            total_change_pct = (ma_current - ma_past) / ma_past * 100
+            slope = total_change_pct / lookback_days
+            
+            return slope
+        
+        # Tính slope cho từng MA
+        ma10_slope = calc_ma_slope('MA10', 5)
+        ma20_slope = calc_ma_slope('MA20', 10)
+        ma50_slope = calc_ma_slope('MA50', 20)
+        
+        def interpret_slope(slope, ma_name):
+            """Diễn giải slope"""
+            # Trend
+            if slope > 0.3:
+                trend = 'UPTREND'
+            elif slope > 0.1:
+                trend = 'MILD_UPTREND'
+            elif slope > -0.1:
+                trend = 'NEUTRAL'
+            elif slope > -0.3:
+                trend = 'MILD_DOWNTREND'
+            else:
+                trend = 'DOWNTREND'
+            
+            # Strength
+            abs_slope = abs(slope)
+            if abs_slope > 0.5:
+                strength = 'VERY_STRONG'
+            elif abs_slope > 0.3:
+                strength = 'STRONG'
+            elif abs_slope > 0.15:
+                strength = 'MODERATE'
+            else:
+                strength = 'WEAK'
+            
+            return {
+                'slope': slope,
+                'slope_pct_per_day': slope,
+                'trend': trend,
+                'strength': strength
+            }
+        
+        ma10_analysis = interpret_slope(ma10_slope, 'MA10')
+        ma20_analysis = interpret_slope(ma20_slope, 'MA20')
+        ma50_analysis = interpret_slope(ma50_slope, 'MA50')
+        
+        # Kiểm tra alignment (tất cả MA cùng hướng)
+        uptrend_count = sum([
+            1 if ma10_slope > 0.1 else 0,
+            1 if ma20_slope > 0.1 else 0,
+            1 if ma50_slope > 0.1 else 0
+        ])
+        
+        downtrend_count = sum([
+            1 if ma10_slope < -0.1 else 0,
+            1 if ma20_slope < -0.1 else 0,
+            1 if ma50_slope < -0.1 else 0
+        ])
+        
+        if uptrend_count == 3:
+            alignment = 'BULLISH_ALIGNED'
+            summary = f"🚀 TẤT CẢ MA đang tăng - Xu hướng tăng mạnh (MA10: +{ma10_slope:.2f}%/ngày, MA50: +{ma50_slope:.2f}%/ngày)"
+        elif uptrend_count >= 2:
+            alignment = 'MOSTLY_BULLISH'
+            summary = f"📈 Đa số MA đang tăng - Xu hướng tăng ({uptrend_count}/3 MA tăng)"
+        elif downtrend_count == 3:
+            alignment = 'BEARISH_ALIGNED'
+            summary = f"📉 TẤT CẢ MA đang giảm - Xu hướng giảm mạnh (MA10: {ma10_slope:.2f}%/ngày, MA50: {ma50_slope:.2f}%/ngày)"
+        elif downtrend_count >= 2:
+            alignment = 'MOSTLY_BEARISH'
+            summary = f"⚠️ Đa số MA đang giảm - Xu hướng giảm ({downtrend_count}/3 MA giảm)"
+        else:
+            alignment = 'MIXED'
+            summary = f"➕ MA hướng hỗn hợp - Thị trường sideway/tích luỹ"
+        
+        return {
+            'ma10': ma10_analysis,
+            'ma20': ma20_analysis,
+            'ma50': ma50_analysis,
+            'alignment': alignment,
+            'summary': summary
+        }
+    
+    def _forecast_scenarios(self, momentum):
+        """
+        Dự đoán kịch bản tương lai dựa trên momentum của MA
+        
+        Kịch bản:
+        1. STRONG_UPTREND: Tất cả MA tăng mạnh → tiếp tục tăng trong 5-10 phiên
+        2. UPTREND_CONSOLIDATION: MA tăng nhưng chậm lại → có thể tích luỹ
+        3. BREAKOUT_SOON: MA convergence + momentum tăng → breakout sắp xảy ra
+        4. DOWNTREND_WARNING: MA bắt đầu giảm → có thể điều chỉnh
+        5. STRONG_DOWNTREND: Tất cả MA giảm → tiếp tục giảm
+        
+        Args:
+            momentum: Kết quả từ _analyze_ma_momentum()
+            
+        Returns:
+            dict: {
+                'scenario': str,
+                'probability': str (HIGH/MEDIUM/LOW),
+                'timeframe': str (1-3 days / 5-10 days / etc),
+                'key_levels': dict,
+                'action_plan': str,
+                'description': str
+            }
+        """
+        if self.df is None or len(self.df) < 50:
+            return {
+                'scenario': 'UNKNOWN',
+                'probability': 'LOW',
+                'timeframe': 'N/A',
+                'key_levels': {},
+                'action_plan': 'Chờ đủ dữ liệu',
+                'description': 'Không đủ dữ liệu để dự đoán'
+            }
+        
+        latest = self.df.iloc[-1]
+        price = latest['close']
+        ma10 = latest['MA10']
+        ma20 = latest['MA20']
+        ma50 = latest['MA50']
+        
+        ma10_slope = momentum['ma10']['slope']
+        ma20_slope = momentum['ma20']['slope']
+        ma50_slope = momentum['ma50']['slope']
+        alignment = momentum['alignment']
+        
+        # Tính convergence để phát hiện breakout
+        convergence = self._detect_convergence()
+        is_converging = convergence.get('is_converging', False)
+        conv_strength = convergence.get('convergence_strength', 0)
+        
+        # Perfect Order
+        perfect_order = (ma10 > ma20 > ma50)
+        
+        # SCENARIO 1: STRONG UPTREND
+        if alignment == 'BULLISH_ALIGNED' and ma50_slope > 0.3 and perfect_order:
+            return {
+                'scenario': 'STRONG_UPTREND',
+                'probability': 'HIGH',
+                'timeframe': '5-10 phiên',
+                'key_levels': {
+                    'support': ma20,
+                    'strong_support': ma50,
+                    'target': price * (1 + ma10_slope / 100 * 10)  # Dự đoán giá sau 10 phiên
+                },
+                'action_plan': '✅ GIỮ - Để giá chạy, chỉ bán nếu giá phá xuống MA20',
+                'description': f'🚀 Xu hướng tăng MẠN MẼ - Tất cả MA đang tăng (MA50: +{ma50_slope:.2f}%/ngày). Dự kiến tiếp tục tăng trong 5-10 phiên tới.'
+            }
+        
+        # SCENARIO 2: UPTREND CONSOLIDATION
+        if alignment in ['BULLISH_ALIGNED', 'MOSTLY_BULLISH'] and 0.1 < ma50_slope < 0.3 and perfect_order:
+            return {
+                'scenario': 'UPTREND_CONSOLIDATION',
+                'probability': 'MEDIUM',
+                'timeframe': '3-7 phiên',
+                'key_levels': {
+                    'support': ma10,
+                    'strong_support': ma20,
+                    'resistance': price * 1.03  # Kháng cự gần
+                },
+                'action_plan': '➕ GIỮ hoặc CHỐT LỜI 30% - Uptrend chậm lại, có thể tích luỹ',
+                'description': f'📈 Xu hướng tăng CHẬM LẠI - MA50 slope giảm ({ma50_slope:.2f}%/ngày). Có thể tích luỹ 3-7 phiên trước khi tăng tiếp hoặc điều chỉnh.'
+            }
+        
+        # SCENARIO 3: BREAKOUT SOON
+        if is_converging and conv_strength > 70 and price > ma50 and ma50_slope > 0:
+            timeframe = '1-3 phiên' if conv_strength > 85 else '3-5 phiên'
+            probability = 'HIGH' if conv_strength > 85 else 'MEDIUM'
+            
+            return {
+                'scenario': 'BREAKOUT_SOON',
+                'probability': probability,
+                'timeframe': timeframe,
+                'key_levels': {
+                    'breakout_level': max(ma10, ma20, ma50) * 1.01,  # Breakout khi vượt MA cao nhất + 1%
+                    'support': ma50,
+                    'target': price * 1.05  # Target +5% sau breakout
+                },
+                'action_plan': f'⚡ THEO DÕI SÁT - MA siêu xoắn ({conv_strength:.0f}%), sẵn sàng mua khi breakout',
+                'description': f'⚡ BREAKOUT SẮP XẢY RA - MA convergence {conv_strength:.0f}%, giá đang tích luỹ trên MA50. Dự kiến breakout trong {timeframe}.'
+            }
+        
+        # SCENARIO 4: DOWNTREND WARNING
+        if ma10_slope < -0.1 or (ma20_slope < -0.1 and price < ma20):
+            return {
+                'scenario': 'DOWNTREND_WARNING',
+                'probability': 'MEDIUM',
+                'timeframe': '2-5 phiên',
+                'key_levels': {
+                    'resistance': ma20,
+                    'support': ma50,
+                    'stop_loss': ma50 * 0.97  # Cắt lỗ nếu giá phá MA50 -3%
+                },
+                'action_plan': '⚠️ BÁN 50% - Momentum giảm, bảo vệ lợi nhuận',
+                'description': f'⚠️ CẢNH BÁO GIẢM - MA10/MA20 bắt đầu giảm (MA10: {ma10_slope:.2f}%/ngày). Có thể điều chỉnh 2-5 phiên tới.'
+            }
+        
+        # SCENARIO 5: STRONG DOWNTREND
+        if alignment in ['BEARISH_ALIGNED', 'MOSTLY_BEARISH'] and ma50_slope < -0.1:
+            return {
+                'scenario': 'STRONG_DOWNTREND',
+                'probability': 'HIGH',
+                'timeframe': '5-10 phiên',
+                'key_levels': {
+                    'resistance': ma50,
+                    'support': price * (1 + ma10_slope / 100 * 10),  # Dự đoán giá sau 10 phiên
+                    'stop_loss': price  # Cắt lỗ ngay
+                },
+                'action_plan': '❌ BÁN NGAY - Xu hướng giảm mạnh',
+                'description': f'📉 Xu hướng GIẢM MẠNH - Tất cả MA đang giảm (MA50: {ma50_slope:.2f}%/ngày). Dự kiến tiếp tục giảm 5-10 phiên.'
+            }
+        
+        # SCENARIO 6: NEUTRAL / SIDEWAY
+        return {
+            'scenario': 'SIDEWAY',
+            'probability': 'MEDIUM',
+            'timeframe': '3-7 phiên',
+            'key_levels': {
+                'support': min(ma10, ma20, ma50),
+                'resistance': max(ma10, ma20, ma50),
+                'price_range': f"{min(ma10, ma20, ma50):.1f} - {max(ma10, ma20, ma50):.1f}"
+            },
+            'action_plan': '➕ THEO DÕI - Thị trường sideway, chờ tín hiệu rõ hơn',
+            'description': f'➕ Thị trường SIDEWAY - MA hướng hỗn hợp, giá dao động quanh MA. Chờ breakout hoặc breakdown.'
+        }
+    
     def _detect_sell_warning(self):
         """
         Phát hiện tín hiệu cảnh báo bán (để tối ưu điểm bán, không bán quá muộn)
@@ -534,6 +803,14 @@ class MAAnalyzer:
             
             reasons.append(f"👉 Đề xuất: {sell_warning['suggested_action']}")
         
+        # === 6. PHÂN TÍCH MOMENTUM & FORECAST ===
+        momentum = self._analyze_ma_momentum()
+        forecast = self._forecast_scenarios(momentum)
+        
+        # Thêm momentum summary vào reasons
+        if momentum['alignment'] in ['BULLISH_ALIGNED', 'MOSTLY_BULLISH']:
+            reasons.append(momentum['summary'])
+        
         # Đảm bảo score không vượt quá 10
         final_score = min(score, 10)
         
@@ -561,6 +838,11 @@ class MAAnalyzer:
                 'sell_warning': sell_warning,
                 'tight_convergence': tight_convergence,
                 'price_position': price_position
+            },
+            # FORECAST - Dự đoán tương lai (NEW!)
+            'forecast': {
+                'momentum': momentum,
+                'scenario': forecast
             },
             # UI-READY FORMAT (Backend-driven UI pattern)
             'ui_alerts': self._format_ui_alerts(sell_warning, convergence, golden_cross, expansion, tight_convergence)

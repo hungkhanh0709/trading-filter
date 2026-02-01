@@ -5,11 +5,9 @@ Stock Scorer - Main orchestrator for stock analysis
 import sys
 from datetime import datetime
 
-from .core import DataFetcher, TIERS, TIER_LABELS, TIER_RECOMMENDATIONS
+from .core import DataFetcher
 from .analyzers import (
     TechnicalAnalyzer,
-    FundamentalAnalyzer,
-    LiquidityAnalyzer,
 )
 from .utils import get_logger, LogLevel
 
@@ -30,60 +28,40 @@ class StockScorer:
         self.fetcher = DataFetcher(symbol, source)
         self.logger = get_logger(symbol, LogLevel.INFO)
         
-    def _calculate_tier(self, total_score):
+    def _generate_recommendation(self, ma_status, tech_signal, forecast_scenario):
         """
-        Determine tier based on total score (DEPRECATED - kept for compatibility)
+        Generate recommendation based on MA analysis and forecast
         
         Args:
-            total_score: Total score (0-100)
-            
-        Returns:
-            tuple: (tier, tier_label, recommendation)
-        """
-        for tier, (min_score, max_score) in TIERS.items():
-            if min_score <= total_score <= max_score:
-                return tier, TIER_LABELS[tier], TIER_RECOMMENDATIONS[tier]
-        
-        # Fallback
-        return 'D', TIER_LABELS['D'], TIER_RECOMMENDATIONS['D']
-    
-    def _generate_recommendation(self, tier, tech_signal):
-        """
-        Generate recommendation based on tier and technical signal
-        
-        Args:
-            tier: Overall tier (S, A, B, C, D)
-            tech_signal: Technical signal (STRONG_BUY, BUY, HOLD, CAUTION, SELL, STRONG_SELL)
+            ma_status: MA status (EXCELLENT, GOOD, ACCEPTABLE, WARNING, POOR)
+            tech_signal: Technical signal from MA analysis
+            forecast_scenario: Forecast scenario (STRONG_UPTREND, BREAKOUT_SOON, etc)
             
         Returns:
             str: Recommendation text
         """
-        # Adjust based on technical signal
-        if tier in ['S', 'A']:
-            if tech_signal in ['STRONG_BUY', 'BUY']:
-                return '🔥 MUA MẠNH - Cơ hội tốt'
-            elif tech_signal == 'HOLD':
-                return '✅ MUA - Nắm giữ dài hạn'
-            elif tech_signal == 'CAUTION':
-                return '⚠️  THẬN TRỌNG - Chờ tín hiệu tốt hơn'
-            else:  # SELL, STRONG_SELL
-                return '⚠️  CANH GIẢM - Đợi điều chỉnh'
+        # Priority 1: Strong signals from forecast
+        if forecast_scenario == 'STRONG_UPTREND':
+            return '🔥 MUA MẠNH - Xu hướng tăng mạnh mẽ'
+        elif forecast_scenario == 'BREAKOUT_SOON':
+            return '⚡ SẴN SÀNG MUA - Breakout sắp xảy ra'
+        elif forecast_scenario == 'STRONG_DOWNTREND':
+            return '❌ BÁN NGAY - Xu hướng giảm mạnh'
+        elif forecast_scenario == 'DOWNTREND_WARNING':
+            return '⚠️ BÁN 50% - Bảo vệ lợi nhuận'
         
-        elif tier == 'B':
-            if tech_signal in ['STRONG_BUY', 'BUY']:
-                return '✅ MUA - Tiềm năng tốt'
-            elif tech_signal == 'HOLD':
-                return '➕ THEO DÕI - Cân nhắc mua'
-            else:
-                return '⚠️  THẬN TRỌNG'
-        
-        elif tier == 'C':
-            if tech_signal in ['STRONG_BUY', 'BUY']:
-                return '➕ THEO DÕI - Tín hiệu kỹ thuật tốt nhưng cơ bản yếu'
-            else:
-                return '⚠️  TRÁNH - Rủi ro cao'
-        
-        else:  # tier D
+        # Priority 2: Based on MA status
+        if ma_status == 'EXCELLENT':
+            return '✅ MUA - Cơ hội tốt, nắm giữ dài hạn'
+        elif ma_status == 'GOOD':
+            return '➕ MUA - Theo dõi tiếp'
+        elif ma_status == 'ACCEPTABLE':
+            if forecast_scenario == 'UPTREND_CONSOLIDATION':
+                return '➕ GIỮ - Tích luỹ, có thể chốt lời 30%'
+            return '➕ THEO DÕI - Cân nhắc'
+        elif ma_status == 'WARNING':
+            return '⚠️ THẬN TRỌNG - Rủi ro cao'
+        else:  # POOR
             return '❌ TRÁNH - Không nên đầu tư'
         
     def analyze(self):
@@ -109,42 +87,49 @@ class StockScorer:
         self.logger.info("Running analysis modules...")
         
         technical = TechnicalAnalyzer(df_history)
-        fundamental = FundamentalAnalyzer(df_ratio)
-        liquidity = LiquidityAnalyzer(df_history)
         
-        # Get status-based analysis (NEW)
+        # Get MA-focused analysis
         tech_result = technical.get_analysis()
-        fund_result = fundamental.get_analysis()
-        liq_result = liquidity.get_analysis()
         
-        # Calculate overall tier using weighted component scores
-        from .core.constants import calculate_overall_tier, COMPONENT_WEIGHTS
+        # Extract MA analysis details
+        ma_status = tech_result.get('ma_analysis', {}).get('status', 'NA')
+        tech_signal = tech_result.get('signal', 'HOLD')
         
-        component_scores = {
-            'technical': tech_result.get('component_score', 0),
-            'fundamental': fund_result.get('component_score', 0),
-            'liquidity': liq_result.get('component_score', 0)
+        # Get forecast for recommendation
+        forecast = tech_result.get('ma_analysis', {}).get('forecast', {})
+        forecast_scenario = forecast.get('scenario', {}).get('scenario', 'SIDEWAY')
+        
+        # Generate recommendation based on MA + forecast
+        recommendation = self._generate_recommendation(ma_status, tech_signal, forecast_scenario)
+        
+        # Extract current state and forecast for clear presentation
+        ma_analysis = tech_result.get('ma_analysis', {})
+        current_state = {
+            'status': ma_status,
+            'signal': tech_signal,
+            'score': ma_analysis.get('score', 0),
+            'reasons': ma_analysis.get('reasons', []),
+            'details': ma_analysis.get('details', {}),
+            'ui_alerts': ma_analysis.get('ui_alerts', [])
         }
         
-        tier, tier_label = calculate_overall_tier(component_scores, COMPONENT_WEIGHTS)
-        
-        # Generate recommendation based on tier and technical signal
-        tech_signal = tech_result.get('signal', 'HOLD')
-        recommendation = self._generate_recommendation(tier, tech_signal)
-        
-        self.logger.success(f"Analysis complete", tier=tier, signal=tech_signal)
+        self.logger.success(f"Analysis complete", status=ma_status, signal=tech_signal, scenario=forecast_scenario)
         
         result = {
             'symbol': self.symbol,
             'analyzed_at': datetime.now().isoformat(),
-            'tier': tier,
-            'tier_label': tier_label,
             'recommendation': recommendation,
-            'technical_signal': tech_signal,
+            'signal': tech_signal,
+            
+            # Current state - Hiện trạng
+            'current_state': current_state,
+            
+            # Forecast - Dự đoán tương lai
+            'forecast': forecast,
+            
+            # Full components (for advanced users)
             'components': {
                 'technical': tech_result,
-                'fundamental': fund_result,
-                'liquidity': liq_result,
             }
         }
         

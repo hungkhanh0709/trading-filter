@@ -1,17 +1,11 @@
 """
-Analysis modules for different aspects of stock scoring
+Analysis modules - MA MASTER FOCUS
 """
 
 from .technical import TechnicalAnalyzer
-from .fundamental import FundamentalAnalyzer
-from .sentiment import SentimentAnalyzer
-from .liquidity import LiquidityAnalyzer
-from .industry import IndustryAnalyzer
+
+# All other analyzers removed - 100% focus on MA
 
 __all__ = [
     'TechnicalAnalyzer',
-    'FundamentalAnalyzer',
-    'SentimentAnalyzer',
-    'LiquidityAnalyzer',
-    'IndustryAnalyzer'
 ]
