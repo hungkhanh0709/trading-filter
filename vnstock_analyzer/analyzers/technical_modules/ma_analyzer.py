@@ -92,7 +92,8 @@ class MAAnalyzer:
             price_position=price_position,
             convergence=convergence,  # Always pass (formatter will decide)
             golden_cross=golden_cross if golden_cross.get('best_cross') else None,
-            death_cross=death_cross if death_cross.get('has_death_cross') else None
+            death_cross=death_cross if death_cross.get('has_death_cross') else None,
+            tight_convergence=tight_convergence if tight_convergence.get('is_tight') else None
         )
         
         # === 4. CALCULATE SCORE ===

@@ -149,7 +149,7 @@
                             <v-tab value="VN100">VN100</v-tab>
                         </v-tabs>
 
-                        <v-data-table :headers="matrixHeaders" :items="matrixData.symbols || []" :items-per-page="100"
+                        <v-data-table :headers="matrixHeaders" :items="sortedSymbols" :items-per-page="100"
                             class="elevation-1" density="compact" :search="search">
                             <template v-slot:top>
                                 <v-text-field v-model="search" label="Tìm kiếm mã" prepend-inner-icon="mdi-magnify"
@@ -236,6 +236,24 @@
                                         <span v-else style="color: #999;">-</span>
                                     </template>
                                     <div v-html="getColumn(item.analysis.columns, 'convergence').tooltip"></div>
+                                </v-tooltip>
+                                <span v-else style="color: #999;">-</span>
+                            </template>
+
+                            <!-- Tight Convergence Column - MA SIÊU XOẮN -->
+                            <template v-slot:item.tight_convergence="{ item }">
+                                <v-tooltip v-if="item.analysis?.columns" location="top">
+                                    <template v-slot:activator="{ props }">
+                                        <v-chip v-if="getColumn(item.analysis.columns, 'tight_convergence')"
+                                            v-bind="props"
+                                            :color="getColumn(item.analysis.columns, 'tight_convergence').color"
+                                            :prepend-icon="getColumn(item.analysis.columns, 'tight_convergence').icon"
+                                            size="small" variant="flat" class="font-weight-bold">
+                                            {{ getColumn(item.analysis.columns, 'tight_convergence').value }}
+                                        </v-chip>
+                                        <span v-else style="color: #999;">-</span>
+                                    </template>
+                                    <div v-html="getColumn(item.analysis.columns, 'tight_convergence').tooltip"></div>
                                 </v-tooltip>
                                 <span v-else style="color: #999;">-</span>
                             </template>
@@ -347,6 +365,26 @@
                 };
             },
             computed: {
+                // Sorted symbols with convergence priority
+                sortedSymbols() {
+                    if (!this.matrixData || !this.matrixData.symbols) {
+                        return [];
+                    }
+
+                    const symbols = [...this.matrixData.symbols];
+
+                    // Sort by convergence strength (highest first)
+                    // Symbols without convergence will be at the end
+                    symbols.sort((a, b) => {
+                        const aConvergence = a.analysis?.convergence?.strength || 0;
+                        const bConvergence = b.analysis?.convergence?.strength || 0;
+
+                        // Descending order (highest convergence first)
+                        return bConvergence - aConvergence;
+                    });
+
+                    return symbols;
+                },
                 priceStats() {
                     if (!this.matrixData || !this.matrixData.symbols) {
                         return { up: 0, down: 0, neutral: 0, total: 0 };
@@ -402,6 +440,13 @@
                             align: 'center',
                             sortable: true,
                             width: '130px'
+                        },
+                        {
+                            title: 'Tight Conv.',
+                            key: 'tight_convergence',
+                            align: 'center',
+                            sortable: true,
+                            width: '120px'
                         },
                         {
                             title: 'Perfect Order',

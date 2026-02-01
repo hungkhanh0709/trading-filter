@@ -6,13 +6,18 @@ Each column has: type, icon, color, label, value, tooltip
 """
 
 
-def format_ma_columns(expansion, momentum, price_position, convergence=None, golden_cross=None, death_cross=None):
+def format_ma_columns(expansion, momentum, price_position, convergence=None, golden_cross=None, death_cross=None, tight_convergence=None):
     """
     Format MA analysis into table columns
     
     Args:
         expansion: Result from detect_expansion()
         momentum: Result from analyze_momentum()
+        price_position: Price position dict {vs_ma10, vs_ma20, vs_ma50}
+        convergence: Optional - Result from detect_convergence()
+        golden_cross: Optional - Result from detect_golden_cross()
+        death_cross: Optional - Result from detect_death_cross()
+        tight_convergence: Optional - Result from detect_tight_convergence()
         price_position: Price position dict {vs_ma10, vs_ma20, vs_ma50}
         convergence: Optional - Result from detect_convergence()
         golden_cross: Optional - Result from detect_golden_cross()
@@ -122,7 +127,6 @@ def format_ma_columns(expansion, momentum, price_position, convergence=None, gol
     if convergence:
         strength = convergence.get('convergence_strength', 0)
         avg_dist = convergence.get('avg_distance', 0)
-        is_converging = convergence.get('is_converging', False)
         message = convergence.get('message', '')
         
         # Show convergence if strength > 70 (important signal)
@@ -151,6 +155,30 @@ def format_ma_columns(expansion, momentum, price_position, convergence=None, gol
                     f"<em style='color: #FF6F00; font-weight: 600;'>{warning}</em>"
                 )
             })
+    
+    # 4.5. TIGHT CONVERGENCE Column - MA SIÊU XOẮN (Breakout sắp xảy ra!)
+    if tight_convergence and tight_convergence.get('is_tight'):
+        strength = tight_convergence.get('strength', 0)
+        avg_dist = tight_convergence.get('avg_distance', 0)
+        message = tight_convergence.get('message', '')
+        
+        # Always show with RED color (very urgent signal)
+        color = 'red' if strength >= 90 else 'deep-orange'
+        icon = 'mdi-alert-decagram'  # Star with exclamation
+        
+        columns.append({
+            'type': 'tight_convergence',
+            'icon': icon,
+            'color': color,
+            'label': f'MA SIÊU XOẮN ({strength:.0f}%)',
+            'value': f"{strength:.0f}%",
+            'tooltip': (
+                f"<strong>⚡⚡ TIGHT CONVERGENCE - BREAKOUT SẮP XẢY RA!</strong><br>"
+                f"Độ mạnh: {strength:.0f}%<br>"
+                f"Khoảng cách TB: {avg_dist:.2f}%<br>"
+                f"<em style='color: #D32F2F; font-weight: 700;'>Chỉ cần 1 phiên breakout là có thể tăng mạnh!</em>"
+            )
+        })
     
     # 5. GOLDEN CROSS Column (Optional)
     if golden_cross and golden_cross.get('best_cross'):
