@@ -1,7 +1,4 @@
-[
-  {
-    "date": "20260201",
-    "HOSE": "FPT,MSN,HDB,SSI,VNM,HPG,ORS,TPB,VIB",
-    "HNX": "IDC,CEO"
-  }
-]
+{
+  "HOSE": "FPT,MSN,HDB,SSI,VNM,HPG",
+  "HNX": "IDC"
+}

@@ -65,42 +65,6 @@ try {
 }
 
 /**
- * Get current date in YYYYMMDD format
- * @returns {string}
- */
-function getCurrentDate() {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    return `${year}${month}${day}`;
-}
-
-/**
- * Parse date string YYYYMMDD to Date object
- * @param {string} dateStr - Format: 20260119
- * @returns {Date}
- */
-function parseDate(dateStr) {
-    const year = parseInt(dateStr.substring(0, 4));
-    const month = parseInt(dateStr.substring(4, 6)) - 1; // Month is 0-indexed
-    const day = parseInt(dateStr.substring(6, 8));
-    return new Date(year, month, day);
-}
-
-/**
- * Format date to readable string
- * @param {Date} date
- * @returns {string}
- */
-function formatDate(date) {
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-}
-
-/**
  * Process filter result data, format: {date, HOSE: "...", HNX: "..."}
  * - Parse date
  * - Process each exchange
@@ -110,10 +74,6 @@ function formatDate(date) {
  * - Generate TradingView URLs
  */
 function processFilterData(entry) {
-    const dateStr = entry.date;
-    const date = parseDate(dateStr);
-    const formattedDate = formatDate(date);
-
     const allStocks = [];
 
     // Process each exchange
@@ -132,15 +92,11 @@ function processFilterData(entry) {
                 exchange,
                 isVN30,
                 tradingViewUrl,
-                date: dateStr,
-                dateFormatted: formattedDate
             });
         });
     });
 
     return {
-        date: dateStr,
-        dateFormatted: formattedDate,
         totalStocks: allStocks.length,
         vn30Count: allStocks.filter(s => s.isVN30).length,
         stocks: allStocks
