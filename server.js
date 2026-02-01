@@ -17,8 +17,7 @@ const getTradingViewUrl = (exchange, symbol) => {
 };
 
 // File paths
-const RAW_FILE = path.join(__dirname, 'data', 'raw.json');
-const DATA_FILE = path.join(__dirname, 'data', 'data.json');
+const WATCH_LIST_FILE = path.join(__dirname, 'data', 'watch_list.json');
 const VN30_FILE = path.join(__dirname, 'data', 'vn30.json');
 const VN100_FILE = path.join(__dirname, 'data', 'vn100.json');
 const PYTHON_VENV = path.join(__dirname, '.venv', 'bin', 'python');
@@ -102,84 +101,6 @@ function formatDate(date) {
 }
 
 /**
- * Process raw.json and append to data.json, format: {date, HOSE: "...", HNX: "..."}
- * - Read raw.json
- * - Get current date
- * - Read data.json
- * - Update or create entry for today
- * - Write back to data.json
- */
-function processRawData() {
-    try {
-        const currentDate = getCurrentDate();
-
-        // Read raw.json
-        if (!fs.existsSync(RAW_FILE)) {
-            console.log('ℹ️  raw.json not found, skipping process');
-            return { success: false, message: 'raw.json not found' };
-        }
-        const rawData = JSON.parse(fs.readFileSync(RAW_FILE, 'utf8'));
-
-        // Read existing data.json
-        let dataArray = [];
-        if (fs.existsSync(DATA_FILE)) {
-            const existingData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-            dataArray = Array.isArray(existingData) ? existingData : [existingData];
-        }
-
-        // Find or create entry for today
-        let todayEntry = dataArray.find(item => item.date === currentDate);
-        let isNew = false;
-
-        if (!todayEntry) {
-            todayEntry = { date: currentDate };
-            dataArray.unshift(todayEntry);
-            isNew = true;
-        }
-
-        // Process each exchange
-        const results = [];
-        EXCHANGES.forEach(exchange => {
-            const symbolsStr = rawData[exchange] || '';
-
-            if (symbolsStr && symbolsStr.trim() !== '') {
-                const rawSymbols = symbolsStr.split(',').map(s => s.trim()).filter(s => s);
-                const uniqueSymbols = [...new Set(rawSymbols)].sort();
-                todayEntry[exchange] = uniqueSymbols.join(',');
-
-                const action = isNew ? 'added' : 'replaced';
-                console.log(`${isNew ? '➕' : '🔄'} ${action.charAt(0).toUpperCase() + action.slice(1)} ${currentDate} [${exchange}]: ${uniqueSymbols.length} symbols`);
-                results.push({ exchange, action, count: uniqueSymbols.length });
-            } else {
-                // Set empty string if no symbols
-                todayEntry[exchange] = '';
-            }
-        });
-
-        if (results.length === 0) {
-            console.log('ℹ️  No symbols to process');
-            return { success: false, message: 'No symbols in raw.json' };
-        }
-
-        // Sort by date descending
-        dataArray.sort((a, b) => b.date.localeCompare(a.date));
-
-        // Write back to data.json
-        fs.writeFileSync(DATA_FILE, JSON.stringify(dataArray, null, 2), 'utf8');
-
-        return {
-            success: true,
-            date: currentDate,
-            results: results,
-            totalDates: dataArray.length
-        };
-    } catch (error) {
-        console.error('❌ Error processing raw data:', error.message);
-        return { success: false, error: error.message };
-    }
-}
-
-/**
  * Process filter result data, format: {date, HOSE: "...", HNX: "..."}
  * - Parse date
  * - Process each exchange
@@ -227,14 +148,15 @@ function processFilterData(entry) {
 }
 
 /**
- * Load and process data from data.json, format: {date, HOSE: "...", HNX: "..."}
+ * Load and process data from watch_list.json, format: {date, HOSE: "...", HNX: "..."}
  */
 function loadFilterResults() {
     try {
-        // Check if data.json exists, fallback to filter-result.json
-        let filePath = DATA_FILE;
-        if (!fs.existsSync(DATA_FILE) && fs.existsSync(path.join(__dirname, 'data', 'filter-result.json'))) {
-            filePath = path.join(__dirname, 'data', 'filter-result.json');
+        // Check if watch_list.json exists
+        let filePath = WATCH_LIST_FILE;
+        if (!fs.existsSync(WATCH_LIST_FILE)) {
+            console.log('ℹ️  watch_list.json not found');
+            return [];
         }
 
         const rawData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -310,7 +232,7 @@ function buildMatrixFromSymbolList(symbolList, allResults, maxDays) {
         dateSymbolsMap[dateData.date] = new Set(dateData.stocks.map(s => s.symbol));
     });
 
-    // Build matrix for FILTERED symbols in the list (even if not in data.json)
+    // Build matrix for WATCHLIST symbols in the list
     const matrixData = symbolList.map(symbol => {
         // Find exchange from stocks data (default to HOSE if not found)
         let exchange = 'HOSE';
@@ -378,12 +300,12 @@ function buildMatrixFromSymbolList(symbolList, allResults, maxDays) {
  * Returns matrix view of stocks across multiple dates
  * Shows NEW/NORMAL/REMOVED/ABSENT status for each symbol
  * 
- * For VN30/VN100: Shows FULL list (30/100 symbols) with status from data.json
- * For FILTERED/HOSE/HNX: Shows only symbols appearing in data.json
+ * For VN30/VN100: Shows FULL list (30/100 symbols) with status from watch_list.json
+ * For WATCHLIST/HOSE/HNX: Shows only symbols appearing in watch_list.json
  */
 app.get('/api/stocks/matrix', async (req, res) => {
     try {
-        const exchangeFilter = req.query.exchange || 'FILTERED'; // FILTERED, HOSE, HNX, VN30, VN100
+        const exchangeFilter = req.query.exchange || 'WATCHLIST'; // WATCHLIST, HOSE, HNX, VN30, VN100
         const allResults = loadFilterResults();
 
         let latestDates, matrixData, dateSymbolsMap;
@@ -400,9 +322,9 @@ app.get('/api/stocks/matrix', async (req, res) => {
             matrixData = result.matrixData;
             dateSymbolsMap = result.dateSymbolsMap;
         } else {
-            // FILTERED/HOSE/HNX: Filter from data.json (existing logic)
+            // WATCHLIST/HOSE/HNX: Filter from watch_list.json
             let results;
-            if (exchangeFilter === 'FILTERED') {
+            if (exchangeFilter === 'WATCHLIST') {
                 results = allResults;
             } else {
                 // HOSE or HNX
@@ -729,21 +651,6 @@ async function fetchStockPrices(symbols) {
 }
 
 /**
- * POST /api/process-raw
- * Process raw.json and update data.json
- */
-app.post('/api/process-raw', (req, res) => {
-    try {
-        res.json(processRawData());
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
  * GET /api/analyze/:symbol
  * Analyze a single stock with caching
  */
@@ -1008,24 +915,11 @@ async function analyzeStock(symbol) {
     });
 }
 
-/**
- * POST /api/process-raw
- * Process raw.json and update data.json
- */
-
-// Process raw data on startup
-console.log('\n📥 Processing raw.json on startup...');
-const initResult = processRawData();
-if (initResult.success) {
-    console.log(`   ✅ ${initResult.date}: ${initResult.symbolCount} symbols, ${initResult.totalDates} dates total`);
-} else {
-    console.log(`   ℹ️  ${initResult.message || initResult.error}`);
-}
-
 // Start server
 app.listen(PORT, () => {
     console.log('━'.repeat(50));
     console.log(`🚀 Server running at http://localhost:${PORT}`);
     console.log(`📊 VN30 symbols loaded: ${vn30List.length}`);
+    console.log(`📊 VN100 symbols loaded: ${vn100List.length}`);
     console.log('━'.repeat(50));
 });

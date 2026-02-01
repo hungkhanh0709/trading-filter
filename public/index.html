@@ -135,8 +135,6 @@
                     title="Phân tích tất cả"></v-btn>
                 <v-btn icon="mdi-cash-sync" @click="loadPrices(true)" :loading="loadingPrices" variant="text"
                     title="Refresh Prices"></v-btn>
-                <v-btn icon="mdi-file-import" @click="processRawData" :loading="processing" variant="text"
-                    title="Process raw.json"></v-btn>
                 <v-btn icon="mdi-refresh" @click="loadData" :loading="loading" variant="text" title="Reload"></v-btn>
             </v-app-bar>
 
@@ -144,15 +142,9 @@
                 <v-container fluid>
                     <!-- Matrix Table -->
                     <v-card>
-                        <v-card-title>
-                            Lịch sử {{ matrixData.stats.totalDates || 0 }} ngày gần nhất
-                        </v-card-title>
-
                         <!-- Exchange Filter Tabs -->
                         <v-tabs v-model="selectedExchange" density="compact" class="px-4">
-                            <v-tab value="FILTERED">Filtered</v-tab>
-                            <v-tab value="HOSE">HOSE</v-tab>
-                            <v-tab value="HNX">HNX</v-tab>
+                            <v-tab value="WATCHLIST">Watch List</v-tab>
                             <v-tab value="VN30">VN30</v-tab>
                             <v-tab value="VN100">VN100</v-tab>
                         </v-tabs>
@@ -214,29 +206,46 @@
                                 </div>
                             </template>
 
+                            <!-- Price vs MA Column -->
+                            <template v-slot:item.price_vs_ma="{ item }">
+                                <v-tooltip v-if="item.analysis?.columns" location="top">
+                                    <template v-slot:activator="{ props }">
+                                        <v-chip v-if="getColumn(item.analysis.columns, 'price_position')" v-bind="props"
+                                            :color="getColumn(item.analysis.columns, 'price_position').color"
+                                            :prepend-icon="getColumn(item.analysis.columns, 'price_position').icon"
+                                            size="small" variant="flat">
+                                            {{ getColumn(item.analysis.columns, 'price_position').value }}
+                                        </v-chip>
+                                        <span v-else style="color: #999;">-</span>
+                                    </template>
+                                    <div v-html="getColumn(item.analysis.columns, 'price_position').tooltip"></div>
+                                </v-tooltip>
+                                <span v-else style="color: #999;">-</span>
+                            </template>
+
+                            <!-- Convergence Column -->
+                            <template v-slot:item.convergence="{ item }">
+                                <v-tooltip v-if="item.analysis?.columns" location="top">
+                                    <template v-slot:activator="{ props }">
+                                        <v-chip v-if="getColumn(item.analysis.columns, 'convergence')" v-bind="props"
+                                            :color="getColumn(item.analysis.columns, 'convergence').color"
+                                            :prepend-icon="getColumn(item.analysis.columns, 'convergence').icon"
+                                            size="small" variant="flat" class="font-weight-bold">
+                                            {{ getColumn(item.analysis.columns, 'convergence').value }}
+                                        </v-chip>
+                                        <span v-else style="color: #999;">-</span>
+                                    </template>
+                                    <div v-html="getColumn(item.analysis.columns, 'convergence').tooltip"></div>
+                                </v-tooltip>
+                                <span v-else style="color: #999;">-</span>
+                            </template>
+
                             <!-- Perfect Order Column -->
                             <template v-slot:item.perfect_order="{ item }">
                                 <v-icon v-if="item.analysis?.perfect_order" icon="mdi-check-circle"
                                     color="success"></v-icon>
                                 <v-icon v-else-if="item.analysis" icon="mdi-close-circle" color="grey"
                                     size="small"></v-icon>
-                                <span v-else style="color: #999;">-</span>
-                            </template>
-
-                            <!-- Status Column -->
-                            <template v-slot:item.status="{ item }">
-                                <v-chip v-if="item.analysis?.status" :color="getStatusColor(item.analysis.status)"
-                                    size="small" variant="flat">
-                                    {{ item.analysis.status }}
-                                </v-chip>
-                                <span v-else style="color: #999;">-</span>
-                            </template>
-
-                            <!-- Signal Column -->
-                            <template v-slot:item.signal="{ item }">
-                                <div v-if="item.analysis?.signal" style="font-size: 1.2em;">
-                                    {{ getSignalIcon(item.analysis.signal) }}
-                                </div>
                                 <span v-else style="color: #999;">-</span>
                             </template>
 
@@ -270,23 +279,6 @@
                                         <span v-else style="color: #999;">-</span>
                                     </template>
                                     <div v-html="getColumn(item.analysis.columns, 'momentum').tooltip"></div>
-                                </v-tooltip>
-                                <span v-else style="color: #999;">-</span>
-                            </template>
-
-                            <!-- Price vs MA Column -->
-                            <template v-slot:item.price_vs_ma="{ item }">
-                                <v-tooltip v-if="item.analysis?.columns" location="top">
-                                    <template v-slot:activator="{ props }">
-                                        <v-chip v-if="getColumn(item.analysis.columns, 'price_position')" v-bind="props"
-                                            :color="getColumn(item.analysis.columns, 'price_position').color"
-                                            :prepend-icon="getColumn(item.analysis.columns, 'price_position').icon"
-                                            size="small" variant="flat">
-                                            {{ getColumn(item.analysis.columns, 'price_position').value }}
-                                        </v-chip>
-                                        <span v-else style="color: #999;">-</span>
-                                    </template>
-                                    <div v-html="getColumn(item.analysis.columns, 'price_position').tooltip"></div>
                                 </v-tooltip>
                                 <span v-else style="color: #999;">-</span>
                             </template>
@@ -338,8 +330,7 @@
                 return {
                     loading: false,
                     loadingPrices: false,
-                    processing: false,
-                    selectedExchange: 'FILTERED',
+                    selectedExchange: 'WATCHLIST',
                     matrixData: {
                         dates: [],
                         symbols: [],
@@ -385,32 +376,32 @@
                 matrixHeaders() {
                     return [
                         {
-                            title: 'Mã CK',
+                            title: 'Symbol',
                             key: 'symbol',
                             align: 'start',
                             sortable: true,
                             width: '100px'
                         },
                         {
-                            title: 'Giá',
+                            title: 'Price',
                             key: 'price',
                             align: 'end',
                             sortable: true,
                             width: '100px'
                         },
                         {
-                            title: 'Status',
-                            key: 'status',
+                            title: 'Price vs MA',
+                            key: 'price_vs_ma',
                             align: 'center',
                             sortable: true,
-                            width: '100px'
+                            width: '120px'
                         },
                         {
-                            title: 'Signal',
-                            key: 'signal',
+                            title: 'Convergence',
+                            key: 'convergence',
                             align: 'center',
                             sortable: true,
-                            width: '80px'
+                            width: '130px'
                         },
                         {
                             title: 'Perfect Order',
@@ -424,7 +415,7 @@
                             key: 'expansion',
                             align: 'center',
                             sortable: true,
-                            width: '140px'
+                            width: '120px'
                         },
                         {
                             title: 'Momentum',
@@ -433,13 +424,6 @@
                             sortable: true,
                             width: '140px'
                         },
-                        {
-                            title: 'Price vs MA',
-                            key: 'price_vs_ma',
-                            align: 'center',
-                            sortable: true,
-                            width: '140px'
-                        }
                     ];
                 }
             },
@@ -548,30 +532,6 @@
                         // Don't show error to user - prices are optional
                     } finally {
                         this.loadingPrices = false;
-                    }
-                },
-
-                async processRawData() {
-                    this.processing = true;
-                    try {
-                        const response = await fetch('/api/process-raw', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' }
-                        });
-                        const result = await response.json();
-
-                        if (result.success) {
-                            console.log('✅ Processed raw.json:', result);
-                            await this.loadData();
-                        } else {
-                            throw new Error(result.message || result.error || 'Failed to process');
-                        }
-                    } catch (error) {
-                        console.error('❌ Error processing raw data:', error);
-                        this.errorMessage = 'Không thể xử lý raw.json: ' + error.message;
-                        this.errorSnackbar = true;
-                    } finally {
-                        this.processing = false;
                     }
                 },
 

@@ -99,7 +99,7 @@ def format_ma_columns(expansion, momentum, price_position, convergence=None, gol
             icon = 'mdi-arrow-up'
         elif vs_ma20 > 0:
             color = 'cyan'
-            icon = 'mdi-arrow-top-right'
+            icon = 'mdi-arrow-bottom-left'
         else:
             color = 'orange'
             icon = 'mdi-arrow-down'
@@ -118,24 +118,39 @@ def format_ma_columns(expansion, momentum, price_position, convergence=None, gol
             )
         })
     
-    # 4. CONVERGENCE Column (Optional) - MA hội tụ
-    if convergence and convergence.get('is_converging'):
+    # 4. CONVERGENCE Column - MA hội tụ (ALWAYS show if strength > 70)
+    if convergence:
         strength = convergence.get('convergence_strength', 0)
         avg_dist = convergence.get('avg_distance', 0)
+        is_converging = convergence.get('is_converging', False)
+        message = convergence.get('message', '')
         
-        columns.append({
-            'type': 'convergence',
-            'icon': 'mdi-arrow-collapse',
-            'color': 'deep-orange',
-            'label': f'MA hội tụ ({strength:.0f}%)',
-            'value': f"{strength:.0f}%",
-            'tooltip': (
-                f"<strong>⚡ MA Convergence</strong><br>"
-                f"Độ mạnh: {strength:.0f}%<br>"
-                f"Khoảng cách TB: {avg_dist:.2f}%<br>"
-                f"<em style='color: #999; font-size: 0.85em;'>Breakout có thể xảy ra</em>"
-            )
-        })
+        # Show convergence if strength > 70 (important signal)
+        if strength > 70:
+            color = 'deep-orange' if strength >= 90 else 'orange'
+            icon = 'mdi-flash-alert' if strength >= 90 else 'mdi-arrow-collapse'
+            
+            # Determine warning based on message content (phân biệt acceleration vs breakout)
+            if 'tăng tốc' in message:
+                # Perfect Order + Convergence = Trend Acceleration
+                warning = '🚀 Xu hướng có thể TĂNG TỐC mạnh!' if strength >= 95 else 'Xu hướng có thể tăng tốc'
+            else:
+                # No Perfect Order + Convergence = Breakout
+                warning = '🔥 Breakout IMMINENT!' if strength >= 95 else 'Breakout có thể xảy ra'
+            
+            columns.append({
+                'type': 'convergence',
+                'icon': icon,
+                'color': color,
+                'label': f'MA hội tụ ({strength:.0f}%)',
+                'value': f"{strength:.0f}%",
+                'tooltip': (
+                    f"<strong>⚡ MA Convergence</strong><br>"
+                    f"Độ mạnh: {strength:.0f}%<br>"
+                    f"Khoảng cách TB: {avg_dist:.2f}%<br>"
+                    f"<em style='color: #FF6F00; font-weight: 600;'>{warning}</em>"
+                )
+            })
     
     # 5. GOLDEN CROSS Column (Optional)
     if golden_cross and golden_cross.get('best_cross'):

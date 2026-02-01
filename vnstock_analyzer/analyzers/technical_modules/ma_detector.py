@@ -12,12 +12,13 @@ All functions are PURE - no side effects, easy to test.
 """
 
 
-def detect_convergence(df):
+def detect_convergence(df, perfect_order=False):
     """
     Phát hiện MA convergence (các đường MA xoắn vào nhau) - Dấu hiệu tích luỹ
     
     Args:
         df: DataFrame with MA10, MA20, MA50 columns
+        perfect_order: bool - Có Perfect Order không? (MA10 > MA20 > MA50)
         
     Returns:
         dict: {
@@ -63,14 +64,25 @@ def detect_convergence(df):
     
     is_converging = avg_distance < 4  # Các MA xoắn vào nhau khi cách nhau < 4%
     
-    if avg_distance < 1.5:
-        message = f"⚡ MA siêu xoắn (TB: {avg_distance:.1f}%) - Breakout sắp xảy ra!"
-    elif avg_distance < 4:
-        message = f"🔄 MA đang tích luỹ (TB: {avg_distance:.1f}%) - Theo dõi breakout"
-    elif avg_distance < 8:
-        message = f"➕ MA gần nhau (TB: {avg_distance:.1f}%)"
+    # MESSAGE: Phân biệt Perfect Order vs Non-Perfect Order
+    if perfect_order:
+        # Perfect Order + Convergence = Xu hướng TẮM TỐC (trend acceleration)
+        if avg_distance < 1.5:
+            message = f"🚀 MA xoắn chặt (TB: {avg_distance:.1f}%) - Xu hướng có thể tăng tốc mạnh!"
+        elif avg_distance < 4:
+            message = f"📈 MA gần nhau (TB: {avg_distance:.1f}%) - Xu hướng có thể tăng tốc"
+        else:
+            message = f"➕ MA gần nhau (TB: {avg_distance:.1f}%)"
     else:
-        message = f"↔️ MA cách xa (TB: {avg_distance:.1f}%)"
+        # Không Perfect Order + Convergence = BREAKOUT (trend change)
+        if avg_distance < 1.5:
+            message = f"⚡ MA siêu xoắn (TB: {avg_distance:.1f}%) - Breakout sắp xảy ra!"
+        elif avg_distance < 4:
+            message = f"🔄 MA đang tích luỹ (TB: {avg_distance:.1f}%) - Theo dõi breakout"
+        elif avg_distance < 8:
+            message = f"➕ MA gần nhau (TB: {avg_distance:.1f}%)"
+        else:
+            message = f"↔️ MA cách xa (TB: {avg_distance:.1f}%)"
     
     return {
         'is_converging': is_converging,

@@ -66,7 +66,6 @@ class StockScorer:
         result = {
             'symbol': self.symbol,
             'analyzed_at': datetime.now().isoformat(),
-            'signal': tech_result.get('signal', 'HOLD'),
             
             # Flatten MA analysis to top level
             'status': ma_analysis.get('status', 'NA'),

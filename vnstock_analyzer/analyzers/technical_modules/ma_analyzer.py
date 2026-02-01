@@ -71,7 +71,12 @@ class MAAnalyzer:
         
         # === 1. RUN ALL DETECTORS ===
         expansion = detect_expansion(self.df)
-        convergence = detect_convergence(self.df)
+        
+        # Check Perfect Order first (needed for convergence logic)
+        latest = self.df.iloc[-1]
+        perfect_order = (latest['MA10'] > latest['MA20'] > latest['MA50'])
+        
+        convergence = detect_convergence(self.df, perfect_order=perfect_order)
         golden_cross = detect_golden_cross(self.df)
         death_cross = detect_death_cross(self.df)
         tight_convergence = detect_tight_convergence(self.df, convergence, death_cross)
@@ -85,7 +90,7 @@ class MAAnalyzer:
             expansion=expansion,
             momentum=momentum,
             price_position=price_position,
-            convergence=convergence if convergence.get('is_converging') else None,
+            convergence=convergence,  # Always pass (formatter will decide)
             golden_cross=golden_cross if golden_cross.get('best_cross') else None,
             death_cross=death_cross if death_cross.get('has_death_cross') else None
         )
