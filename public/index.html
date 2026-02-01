@@ -88,6 +88,25 @@
             color: #FFA726;
             font-weight: 600;
         }
+
+        /* HIGH Warning Pulse Animation */
+        .pulse-animation {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            50% {
+                transform: scale(1.15);
+                opacity: 0.85;
+            }
+        }
     </style>
 </head>
 
@@ -155,18 +174,30 @@
                                 </div>
                             </template>
 
-                            <!-- Symbol Column -->
+                            <!-- Symbol Column with Analyze Button -->
                             <template v-slot:item.symbol="{ item }">
-                                <a :href="item.tradingViewUrl" target="_blank" class="stock-symbol"
-                                    style="text-decoration: none; color: inherit;">
-                                    {{ item.symbol }}
-                                    <v-chip v-if="item.exchange" size="x-small"
-                                        :color="item.exchange === 'HOSE' ? 'blue' : 'orange'" variant="flat"
-                                        style="margin-left: 4px; font-size: 0.7em; height: 16px;">
-                                        {{ item.exchange }}
-                                    </v-chip>
-                                    <v-icon v-if="item.isVN30" icon="mdi-star" class="vn30-icon" title="VN30"></v-icon>
-                                </a>
+                                <div style="display: flex; gap: 6px;">
+                                    <a :href="item.tradingViewUrl" target="_blank" class="stock-symbol"
+                                        style="text-decoration: none; color: inherit; display: flex;">
+                                        {{ item.symbol }}
+                                        <v-chip v-if="item.exchange" size="x-small"
+                                            :color="item.exchange === 'HOSE' ? 'blue' : 'orange'" variant="flat"
+                                            style="margin-left: 4px; font-size: 0.7em; height: 16px;">
+                                            {{ item.exchange }}
+                                        </v-chip>
+                                        <v-icon v-if="item.isVN30" icon="mdi-star" class="vn30-icon"
+                                            title="VN30"></v-icon>
+                                    </a>
+                                    <v-btn icon size="x-small" variant="text" @click.stop="analyzeSymbol(item)"
+                                        :loading="item.analyzing" :color="item.analysis ? 'success' : 'primary'"
+                                        density="compact">
+                                        <v-icon :icon="item.analysis ? 'mdi-refresh' : 'mdi-chart-box'"
+                                            size="small"></v-icon>
+                                        <v-tooltip activator="parent" location="top">
+                                            {{ getAnalyzeButtonTooltip(item) }}
+                                        </v-tooltip>
+                                    </v-btn>
+                                </div>
                             </template>
 
                             <!-- Price Change Column -->
@@ -188,6 +219,156 @@
                                         class="status-removed" title="Sắp loại"></v-icon>
                                     <v-icon v-else icon="mdi-minus" class="status-absent" title="Không có"></v-icon>
                                 </div>
+                            </template>
+
+                            <!-- Tier Column -->
+                            <template v-slot:item.tier="{ item }">
+                                <div v-if="item.analyzing" class="text-center">
+                                    <v-progress-circular indeterminate size="20" width="2"
+                                        color="primary"></v-progress-circular>
+                                </div>
+                                <v-tooltip v-else-if="item.analysis" location="top">
+                                    <template v-slot:activator="{ props }">
+                                        <v-chip v-bind="props" :color="getTierColor(item.analysis.tier)" size="small"
+                                            variant="flat">
+                                            {{ item.analysis.tier }}
+                                        </v-chip>
+                                    </template>
+                                    <div style="max-width: 300px;">
+                                        <div><strong>{{ item.analysis.tier_label }}</strong></div>
+                                        <div>{{ item.analysis.recommendation }}</div>
+                                        <div class="mt-2" style="font-size: 0.85em;">
+                                            Kỹ thuật: {{ item.analysis.components?.technical?.status || '-' }}<br>
+                                            Cơ bản: {{ item.analysis.components?.fundamental?.status || '-' }}<br>
+                                            Thanh khoản: {{ item.analysis.components?.liquidity?.status || '-' }}
+                                        </div>
+                                    </div>
+                                </v-tooltip>
+                                <span v-else style="color: #999;">-</span>
+                            </template>
+
+                            <!-- Perfect Order Column -->
+                            <template v-slot:item.perfect_order="{ item }">
+                                <v-tooltip v-if="item.analysis?.components?.technical?.criteria?.ma_trend"
+                                    location="top">
+                                    <template v-slot:activator="{ props }">
+                                        <v-icon v-bind="props"
+                                            v-if="item.analysis.components.technical.criteria.ma_trend.details?.perfect_order"
+                                            icon="mdi-check-circle" color="success" size="small"></v-icon>
+                                        <v-icon v-bind="props" v-else icon="mdi-close-circle" color="grey"
+                                            size="small"></v-icon>
+                                    </template>
+                                    <div style="max-width: 250px;">
+                                        <div
+                                            v-if="item.analysis.components.technical.criteria.ma_trend.details?.perfect_order">
+                                            <strong>✅ Perfect Order</strong><br>
+                                            MA5 > MA10 > MA20 > MA50
+                                        </div>
+                                        <div v-else>
+                                            <strong>Vị trí giá:</strong><br>
+                                            vs MA50: {{
+                                            item.analysis.components.technical.criteria.ma_trend.details?.price_position?.vs_ma50?.toFixed(1)
+                                            }}%<br>
+                                            vs MA20: {{
+                                            item.analysis.components.technical.criteria.ma_trend.details?.price_position?.vs_ma20?.toFixed(1)
+                                            }}%<br>
+                                            vs MA10: {{
+                                            item.analysis.components.technical.criteria.ma_trend.details?.price_position?.vs_ma10?.toFixed(1)
+                                            }}%
+                                        </div>
+                                    </div>
+                                </v-tooltip>
+                                <span v-else style="color: #999;">-</span>
+                            </template>
+
+                            <!-- MA Alert Column - Priority Order -->
+                            <template v-slot:item.ma_alert="{ item }">
+                                <div v-if="item.analysis?.components?.technical?.criteria?.ma_trend"
+                                    style="display: flex; gap: 4px; justify-content: center;">
+
+                                    <!-- 1. SELL WARNING - Highest Priority (Action Required!) -->
+                                    <v-tooltip
+                                        v-if="item.analysis.components.technical.criteria.ma_trend.details?.sell_warning?.has_warning"
+                                        location="top">
+                                        <template v-slot:activator="{ props }">
+                                            <v-icon v-bind="props" icon="mdi-alert"
+                                                :color="item.analysis.components.technical.criteria.ma_trend.details.sell_warning.warning_level === 'HIGH' ? 'error' : 'warning'"
+                                                :size="item.analysis.components.technical.criteria.ma_trend.details.sell_warning.warning_level === 'HIGH' ? 'default' : 'small'"
+                                                :class="item.analysis.components.technical.criteria.ma_trend.details.sell_warning.warning_level === 'HIGH' ? 'pulse-animation' : ''"></v-icon>
+                                        </template>
+                                        <div>
+                                            <strong>🚨 CẢNH BÁO BÁN ({{
+                                                item.analysis.components.technical.criteria.ma_trend.details.sell_warning.warning_level
+                                                }})</strong><br>
+                                            <div v-for="warning in item.analysis.components.technical.criteria.ma_trend.details.sell_warning.warnings"
+                                                :key="warning" style="color: #ff5252;">• {{ warning }}</div>
+                                            <div class="mt-1" style="font-weight: 600;">👉 Đề xuất: {{
+                                                item.analysis.components.technical.criteria.ma_trend.details.sell_warning.suggested_action
+                                                }}</div>
+                                        </div>
+                                    </v-tooltip>
+
+                                    <!-- 2. CONVERGENCE - Breakout sắp xảy ra (Prepare to Buy!) -->
+                                    <v-tooltip
+                                        v-if="item.analysis.components.technical.criteria.ma_trend.details?.convergence?.is_converging"
+                                        location="top">
+                                        <template v-slot:activator="{ props }">
+                                            <v-icon v-bind="props" icon="mdi-arrow-collapse" color="purple"
+                                                size="small"></v-icon>
+                                        </template>
+                                        <div>
+                                            <strong>🔄 BREAKOUT SẮP XẢY RA (MA Convergence)</strong><br>
+                                            <span style="color: #9c27b0; font-weight: 600;">⚡ Chuẩn bị điểm mua
+                                                tốt!</span><br>
+                                            Khoảng cách TB: {{
+                                            item.analysis.components.technical.criteria.ma_trend.details.convergence.avg_distance?.toFixed(1)
+                                            }}%<br>
+                                            {{
+                                            item.analysis.components.technical.criteria.ma_trend.details.convergence.message
+                                            }}
+                                        </div>
+                                    </v-tooltip>
+
+                                    <!-- 3. GOLDEN CROSS - Vừa cross (Can Buy) -->
+                                    <v-tooltip
+                                        v-if="item.analysis.components.technical.criteria.ma_trend.details?.golden_cross?.best_cross"
+                                        location="top">
+                                        <template v-slot:activator="{ props }">
+                                            <v-icon v-bind="props" icon="mdi-star-circle" color="amber"
+                                                size="small"></v-icon>
+                                        </template>
+                                        <div>
+                                            <strong>⭐ Golden Cross - Có thể mua</strong><br>
+                                            {{
+                                            item.analysis.components.technical.criteria.ma_trend.details.golden_cross.best_cross.label
+                                            }}<br>
+                                            Credibility: {{
+                                            item.analysis.components.technical.criteria.ma_trend.details.golden_cross.best_cross.credibility_points
+                                            }} pts
+                                        </div>
+                                    </v-tooltip>
+
+                                    <!-- 4. EXPANSION - Đang tăng tốt (Hold) -->
+                                    <v-tooltip
+                                        v-if="item.analysis.components.technical.criteria.ma_trend.details?.expansion?.is_expanding"
+                                        location="top">
+                                        <template v-slot:activator="{ props }">
+                                            <v-icon v-bind="props" icon="mdi-arrow-expand"
+                                                :color="item.analysis.components.technical.criteria.ma_trend.details.expansion.expansion_quality === 'STRONG' ? 'green' : 'blue'"
+                                                size="small"></v-icon>
+                                        </template>
+                                        <div>
+                                            <strong>📈 MA Expansion - Giữ tiếp</strong><br>
+                                            Mức độ: {{
+                                            item.analysis.components.technical.criteria.ma_trend.details.expansion.expansion_quality
+                                            }}<br>
+                                            {{
+                                            item.analysis.components.technical.criteria.ma_trend.details.expansion.message
+                                            }}
+                                        </div>
+                                    </v-tooltip>
+                                </div>
+                                <span v-else style="color: #999;">-</span>
                             </template>
                         </v-data-table>
                     </v-card>
@@ -246,7 +427,7 @@
                     },
                     search: '',
                     errorSnackbar: false,
-                    errorMessage: '',
+                    errorMessage: ''
                 };
             },
             computed: {
@@ -286,12 +467,34 @@
                             width: '120px'
                         },
                         {
-                            title: 'Thay đổi',
+                            title: 'Giá',
                             key: 'price',
                             align: 'end',
                             sortable: true,
-                            width: '150px'
-                        }
+                            width: '120px'
+                        },
+                        // MA Analysis columns
+                        {
+                            title: 'Tier',
+                            key: 'tier',
+                            align: 'center',
+                            sortable: true,
+                            width: '80px'
+                        },
+                        {
+                            title: 'Perfect',
+                            key: 'perfect_order',
+                            align: 'center',
+                            sortable: true,
+                            width: '70px'
+                        },
+                        {
+                            title: 'MA Alert',
+                            key: 'ma_alert',
+                            align: 'center',
+                            sortable: false,
+                            width: '100px'
+                        },
                     ];
 
                     // Add date columns
@@ -357,7 +560,16 @@
                         const result = await response.json();
 
                         if (result.success) {
+                            // Initialize analysis fields for each symbol to ensure reactivity
+                            result.data.symbols = result.data.symbols.map(symbol => ({
+                                ...symbol,
+                                analyzing: false,
+                                analysis: null,
+                                analysisError: null
+                            }));
+
                             this.matrixData = result.data;
+                            console.log(`✅ Loaded ${result.data.symbols.length} symbols`);
                         } else {
                             throw new Error(result.error || 'Failed to load data');
                         }
@@ -428,6 +640,90 @@
                         this.processing = false;
                     }
                 },
+
+                // Analysis methods
+                async analyzeSymbol(item) {
+                    if (item.analyzing) return;
+
+                    // Set analyzing state - Vue 3 automatically tracks changes
+                    item.analyzing = true;
+                    item.analysisError = null;
+
+                    try {
+                        console.log(`🔍 Analyzing ${item.symbol}...`);
+                        const response = await fetch(`/api/analyze/${item.symbol}`);
+                        const result = await response.json();
+
+                        console.log(`📊 Response for ${item.symbol}:`, result);
+
+                        if (result.success) {
+                            // Force reactivity by reassigning the whole object
+                            Object.assign(item, {
+                                ...item,
+                                analysis: result.data,
+                                analyzing: false,
+                                analysisError: null
+                            });
+                            console.log(`✅ Analysis complete for ${item.symbol}: ${result.data.tier_label}`);
+
+                            // Force Vue to re-render
+                            this.$forceUpdate();
+                        } else {
+                            item.analysisError = result.error || 'Analysis failed';
+                            item.analyzing = false;
+                            console.error(`❌ Analysis failed for ${item.symbol}:`, result.error);
+                        }
+                    } catch (error) {
+                        item.analysisError = error.message;
+                        item.analyzing = false;
+                        console.error(`❌ Error analyzing ${item.symbol}:`, error);
+                    }
+                },
+
+                // Color helpers - VN Stock Market Standard
+                getTierColor(tier) {
+                    const colors = {
+                        'S': 'purple',           // 🟣 Tăng trần - Xuất sắc
+                        'A': 'green',            // 🟢 Tăng - Rất tốt
+                        'B': 'yellow-darken-2',  // 🟡 Tham chiếu - Tốt
+                        'C': 'orange',           // 🟠 Nhẹ giảm - Trung bình
+                        'D': 'red',              // 🔴 Giảm - Kém
+                        'E': 'cyan',             // 🔵 Giảm nhiều - Rất kém
+                        'F': 'cyan-darken-2'     // 🔵 Giảm sàn - Thất bại
+                    };
+                    return colors[tier] || 'grey';
+                },
+
+                getRecommendationColor(recommendation) {
+                    if (!recommendation) return '#999';
+                    if (recommendation.includes('MUA')) return '#4CAF50';
+                    if (recommendation.includes('BÁN')) return '#F44336';
+                    return '#FFA726';
+                },
+
+                getSignalColor(signal) {
+                    const colors = {
+                        'BUY': 'success',
+                        'HOLD': 'warning',
+                        'SELL': 'error'
+                    };
+                    return colors[signal] || 'grey';
+                },
+
+                getWarningColor(level) {
+                    const colors = {
+                        'HIGH': 'error',
+                        'MEDIUM': 'warning',
+                        'LOW': 'success'
+                    };
+                    return colors[level] || 'grey';
+                },
+
+                getAnalyzeButtonTooltip(item) {
+                    if (item.analyzing) return 'Đang phân tích...';
+                    if (item.analysis) return 'Làm mới';
+                    return 'Phân tích';
+                }
             },
         });
 

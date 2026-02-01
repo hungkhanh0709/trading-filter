@@ -22,13 +22,21 @@ const DATA_FILE = path.join(__dirname, 'data', 'data.json');
 const VN30_FILE = path.join(__dirname, 'data', 'vn30.json');
 const PYTHON_VENV = path.join(__dirname, '.venv', 'bin', 'python');
 const FETCH_PRICES_SCRIPT = path.join(__dirname, 'scripts', 'fetch_prices.py');
+const ANALYZE_STOCK_SCRIPT = path.join(__dirname, 'scripts', 'analyze_stock.py');
 
 // Price cache
 let priceCache = {
     data: {},
     timestamp: 0,
-    // Cache for 15 minutes
-    ttl: 15 * 60 * 1000
+    // Cache for 60 minutes
+    ttl: 60 * 60 * 1000
+};
+
+// Analysis cache
+let analysisCache = {
+    data: {},
+    // Cache for 60 minutes
+    ttl: 60 * 60 * 1000
 };
 
 // Middleware
@@ -592,6 +600,276 @@ app.post('/api/process-raw', (req, res) => {
         });
     }
 });
+
+/**
+ * GET /api/analyze/:symbol
+ * Analyze a single stock with caching
+ */
+app.get('/api/analyze/:symbol', async (req, res) => {
+    try {
+        const symbol = req.params.symbol.toUpperCase();
+        const forceRefresh = req.query.force === '1';
+
+        // Check cache
+        const now = Date.now();
+        if (!forceRefresh && analysisCache.data[symbol]) {
+            const cached = analysisCache.data[symbol];
+            if (now - cached.timestamp < analysisCache.ttl) {
+                console.log(`📦 Using cached analysis for ${symbol}`);
+                return res.json({
+                    success: true,
+                    data: cached.result,
+                    cached: true
+                });
+            }
+        }
+
+        // Analyze
+        console.log(`📊 Analyzing ${symbol}...`);
+        const result = await analyzeStock(symbol);
+
+        if (result.error) {
+            return res.json({
+                success: false,
+                error: result.error,
+                symbol: symbol
+            });
+        }
+
+        // Cache result
+        analysisCache.data[symbol] = {
+            result: result,
+            timestamp: now
+        };
+
+        res.json({
+            success: true,
+            data: result,
+            cached: false
+        });
+    } catch (error) {
+        console.error(`❌ Error analyzing ${req.params.symbol}:`, error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * POST /api/analyze-stocks
+ * Analyze multiple stocks one by one
+ * Body: { symbols: ['VNM', 'FPT', 'HPG'] }
+ * Returns: Stream of analysis results
+ */
+app.post('/api/analyze-stocks', async (req, res) => {
+    try {
+        const { symbols } = req.body;
+
+        if (!symbols || !Array.isArray(symbols) || symbols.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Symbols array is required'
+            });
+        }
+
+        // Set headers for streaming response
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+
+        console.log(`🚀 Starting analysis for ${symbols.length} symbols...`);
+
+        const results = [];
+        let successCount = 0;
+        let errorCount = 0;
+
+        // Analyze each symbol one by one
+        for (let i = 0; i < symbols.length; i++) {
+            const symbol = symbols[i];
+
+            try {
+                console.log(`📊 [${i + 1}/${symbols.length}] Analyzing ${symbol}...`);
+
+                const result = await analyzeStock(symbol);
+
+                if (result.error) {
+                    console.log(`❌ [${i + 1}/${symbols.length}] ${symbol}: ${result.error}`);
+                    errorCount++;
+                } else {
+                    console.log(`✅ [${i + 1}/${symbols.length}] ${symbol}: ${result.tier_label}`);
+                    successCount++;
+                }
+
+                results.push(result);
+
+                // Send progress update to client
+                res.write(JSON.stringify({
+                    type: 'progress',
+                    current: i + 1,
+                    total: symbols.length,
+                    symbol: symbol,
+                    result: result
+                }) + '\n');
+
+            } catch (error) {
+                console.error(`❌ [${i + 1}/${symbols.length}] ${symbol}: ${error.message}`);
+                errorCount++;
+
+                results.push({
+                    symbol: symbol,
+                    error: error.message
+                });
+
+                res.write(JSON.stringify({
+                    type: 'error',
+                    current: i + 1,
+                    total: symbols.length,
+                    symbol: symbol,
+                    error: error.message
+                }) + '\n');
+            }
+
+            // Add delay to avoid rate limit (same as fetch_prices.py)
+            if (i < symbols.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 3500));
+            }
+        }
+
+        // Send final summary
+        res.write(JSON.stringify({
+            type: 'complete',
+            total: symbols.length,
+            success: successCount,
+            errors: errorCount,
+            results: results
+        }) + '\n');
+
+        res.end();
+
+        console.log(`🎯 Analysis complete: ${successCount}/${symbols.length} successful`);
+
+    } catch (error) {
+        console.error('❌ Error in analyze-stocks:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Analyze a single stock using Python script
+ * @param {string} symbol - Stock symbol
+ * @returns {Promise<Object>} Analysis result
+ */
+async function analyzeStock(symbol) {
+    return new Promise((resolve, reject) => {
+        const args = [ANALYZE_STOCK_SCRIPT, symbol];
+        const pythonProcess = spawn(PYTHON_VENV, args);
+
+        let stdout = '';
+        let stderr = '';
+
+        pythonProcess.stdout.on('data', (data) => {
+            stdout += data.toString();
+        });
+
+        pythonProcess.stderr.on('data', (data) => {
+            stderr += data.toString();
+            // Log progress to console
+            const line = data.toString().trim();
+            if (line && !line.includes('⏳') && !line.includes('✅')) {
+                console.log(`  ${line}`);
+            }
+        });
+
+        pythonProcess.on('close', (code) => {
+            if (code !== 0) {
+                console.error(`❌ Analysis failed for ${symbol} with code ${code}`);
+                if (stderr) console.error('stderr:', stderr);
+                return resolve({
+                    symbol: symbol,
+                    error: `Analysis failed with exit code ${code}`
+                });
+            }
+
+            try {
+                // Parse JSON from stdout
+                // Strategy: Try to parse the entire stdout first (most common case)
+                // If that fails, try to extract JSON from lines
+
+                let result;
+                const trimmedStdout = stdout.trim();
+
+                // Try 1: Parse entire stdout as JSON
+                try {
+                    result = JSON.parse(trimmedStdout);
+                    resolve(result);
+                    return;
+                } catch (e) {
+                    // Not a single JSON object, try extracting from lines
+                }
+
+                // Try 2: Find JSON object in lines (may span multiple lines)
+                // Look for first '{' and last '}'
+                const firstBrace = trimmedStdout.indexOf('{');
+                const lastBrace = trimmedStdout.lastIndexOf('}');
+
+                if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                    const jsonStr = trimmedStdout.substring(firstBrace, lastBrace + 1);
+                    try {
+                        result = JSON.parse(jsonStr);
+                        resolve(result);
+                        return;
+                    } catch (e) {
+                        // Still failed, try line by line
+                    }
+                }
+
+                // Try 3: Parse line by line (fallback)
+                const lines = stdout.split('\n');
+                for (let i = lines.length - 1; i >= 0; i--) {
+                    const line = lines[i].trim();
+                    if (line.startsWith('{')) {
+                        try {
+                            result = JSON.parse(line);
+                            resolve(result);
+                            return;
+                        } catch (e) {
+                            // Continue to next line
+                        }
+                    }
+                }
+
+                // All parsing strategies failed
+                console.error(`❌ No valid JSON output for ${symbol}`);
+                console.error('stdout:', stdout);
+                resolve({
+                    symbol: symbol,
+                    error: 'No valid JSON output from analysis script'
+                });
+            } catch (error) {
+                console.error(`❌ Error parsing JSON for ${symbol}:`, error.message);
+                console.error('stdout:', stdout);
+                resolve({
+                    symbol: symbol,
+                    error: `Failed to parse JSON: ${error.message}`
+                });
+            }
+        });
+
+        pythonProcess.on('error', (error) => {
+            console.error(`❌ Failed to start analysis for ${symbol}:`, error);
+            reject(error);
+        });
+    });
+}
+
+/**
+ * POST /api/process-raw
+ * Process raw.json and update data.json
+ */
 
 // Process raw data on startup
 console.log('\n📥 Processing raw.json on startup...');

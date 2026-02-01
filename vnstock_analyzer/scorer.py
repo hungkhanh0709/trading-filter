@@ -9,11 +9,8 @@ from .core import DataFetcher, TIERS, TIER_LABELS, TIER_RECOMMENDATIONS
 from .analyzers import (
     TechnicalAnalyzer,
     FundamentalAnalyzer,
-    SentimentAnalyzer,
     LiquidityAnalyzer,
-    IndustryAnalyzer
 )
-
 
 class StockScorer:
     """Main scoring engine - orchestrates all analyzers"""
@@ -58,9 +55,6 @@ class StockScorer:
         Returns:
             str: Recommendation text
         """
-        # Base recommendation from tier
-        base_rec = TIER_RECOMMENDATIONS.get(tier, 'Theo dõi')
-        
         # Adjust based on technical signal
         if tier in ['S', 'A']:
             if tech_signal in ['STRONG_BUY', 'BUY']:
@@ -107,28 +101,18 @@ class StockScorer:
         # Get cached data
         df_history = self.fetcher.get_data('history')
         df_ratio = self.fetcher.get_data('ratio')
-        insider = self.fetcher.get_data('insider')
-        shareholders = self.fetcher.get_data('shareholders')
-        overview = self.fetcher.get_data('overview')
         
         # Run analyzers
         print(f"🔍 Đang phân tích...\n", file=sys.stderr)
         
         technical = TechnicalAnalyzer(df_history)
         fundamental = FundamentalAnalyzer(df_ratio)
-        # sentiment = SentimentAnalyzer(insider, shareholders)  # DISABLED: Insufficient data
         liquidity = LiquidityAnalyzer(df_history)
-        
-        # Get current price for industry analyzer
-        # current_price = df_history.iloc[-1]['close'] if df_history is not None and len(df_history) > 0 else None
-        # industry = IndustryAnalyzer(self.symbol, self.source)  # DISABLED: Low practical value
         
         # Get status-based analysis (NEW)
         tech_result = technical.get_analysis()
         fund_result = fundamental.get_analysis()
-        # sent_result = sentiment.get_analysis()  # DISABLED
         liq_result = liquidity.get_analysis()
-        # industry_result = industry.get_analysis(overview, current_price)  # DISABLED
         
         # Calculate overall tier using weighted component scores
         from .core.constants import calculate_overall_tier, COMPONENT_WEIGHTS
@@ -155,9 +139,7 @@ class StockScorer:
             'components': {
                 'technical': tech_result,
                 'fundamental': fund_result,
-                # 'sentiment': sent_result,  # DISABLED
                 'liquidity': liq_result,
-                # 'industry': industry_result  # DISABLED
             }
         }
         

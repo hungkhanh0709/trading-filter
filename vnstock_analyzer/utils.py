@@ -2,25 +2,42 @@
 Utility functions for stock analysis
 """
 
+import sys
 import json
+import numpy as np
 
 
-def print_report(result):
+class NumpyEncoder(json.JSONEncoder):
+    """Custom JSON encoder for numpy types"""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        return super(NumpyEncoder, self).default(obj)
+
+
+def print_report(result, file=sys.stderr):
     """
     In báo cáo theo định dạng status-based (không hiển thị điểm số)
     
     Args:
         result: Analysis result dictionary
+        file: Output file (default: sys.stderr for UI integration)
     """
     if result is None:
-        print("❌ Không thể phân tích được")
+        print("❌ Không thể phân tích được", file=file)
         return
     
     from .core.constants import STATUS_LEVELS
     
-    print(f"\n{'='*60}")
-    print(f"📊 Analyze Report: {result['symbol']}")
-    print(f"{'='*60}\n")
+    print(f"\n{'='*60}", file=file)
+    print(f"📊 Analyze Report: {result['symbol']}", file=file)
+    print(f"{'='*60}\n", file=file)
     
     # Overall tier with criteria count
     tier_label = result['tier_label']
@@ -46,21 +63,8 @@ def print_report(result):
         # Count passing (EXCELLENT + GOOD)
         passing_criteria += summary.get('excellent', 0) + summary.get('good', 0)
     
-    # Calculate percentage
-    pass_percentage = (passing_criteria / total_criteria * 100) if total_criteria > 0 else 0
-    
-    # Display tier with count
-    tier_icons = {
-        'S': '🔥',
-        'A': '✅',
-        'B': '➕',
-        'C': '⚠️',
-        'D': '❌'
-    }
-    tier_icon = tier_icons.get(result['tier'], '⚪')
-    
-    print(f"{tier_icon} {tier_label.upper()} ({passing_criteria}/{total_criteria} tiêu chí đạt - {pass_percentage:.0f}%)")
-    print(f"💡 {result['recommendation']}")
+    print(f"{tier_label.upper()} (đạt {passing_criteria}/{total_criteria} tiêu chí)", file=file)
+    print(f"💡 {result['recommendation']}", file=file)
     
     # Technical signal
     if 'technical_signal' in result:
@@ -74,12 +78,12 @@ def print_report(result):
             'STRONG_SELL': '🔴🔴'
         }
         icon = signal_icons.get(signal, '⚪')
-        print(f"{icon} Tín hiệu kỹ thuật: {signal}")
+        print(f"{icon} Tín hiệu kỹ thuật: {signal}", file=file)
     
-    print()
-    print(f"{'─'*60}")
-    print(f"CHI TIẾT PHÂN TÍCH:")
-    print(f"{'─'*60}\n")
+    print(file=file)
+    print(f"{'─'*60}", file=file)
+    print(f"CHI TIẾT PHÂN TÍCH:", file=file)
+    print(f"{'─'*60}\n", file=file)
     
     # 1. Technical Analysis
     if 'technical' in components:
@@ -87,12 +91,15 @@ def print_report(result):
         status = tech.get('status', 'NA')
         status_info = STATUS_LEVELS.get(status, STATUS_LEVELS['NA'])
         
-        print(f"1️⃣  KỸ THUẬT {status_info['icon']} {status_info['label']}")
+        print(f"1️⃣  KỸ THUẬT {status_info['icon']} {status_info['label']}", file=file)
         
         criteria = tech.get('criteria', {})
         for criterion_name, criterion_data in criteria.items():
             crit_status = criterion_data.get('status', 'NA')
             crit_info = STATUS_LEVELS.get(crit_status, STATUS_LEVELS['NA'])
+            
+            # NEW: Support both 'reason' (string) and 'reasons' (array)
+            reasons = criterion_data.get('reasons', None)
             reason = criterion_data.get('reason', '')
             
             # Format criterion name
@@ -105,8 +112,15 @@ def print_report(result):
             }
             display_name = name_map.get(criterion_name, criterion_name.upper())
             
-            print(f"   {crit_info['icon']} {display_name}: {reason}")
-        print()
+            # NEW: Print reasons as array (multi-line) if available
+            if reasons and isinstance(reasons, list):
+                print(f"{crit_info['icon']} {display_name}:", file=file)
+                for r in reasons:
+                    print(f"  • {r}", file=file)
+            else:
+                # Backward compatibility with old string format
+                print(f"{crit_info['icon']} {display_name}: {reason}", file=file)
+        print(file=file)
     
     # 2. Fundamental Analysis
     if 'fundamental' in components:
@@ -114,7 +128,7 @@ def print_report(result):
         status = fund.get('status', 'NA')
         status_info = STATUS_LEVELS.get(status, STATUS_LEVELS['NA'])
         
-        print(f"2️⃣  CƠ BẢN {status_info['icon']} {status_info['label']}")
+        print(f"2️⃣  CƠ BẢN {status_info['icon']} {status_info['label']}", file=file)
         
         criteria = fund.get('criteria', {})
         for criterion_name, criterion_data in criteria.items():
@@ -134,8 +148,8 @@ def print_report(result):
             }
             display_name = name_map.get(criterion_name, criterion_name.upper())
             
-            print(f"   {crit_info['icon']} {display_name}: {reason}")
-        print()
+            print(f"{crit_info['icon']} {display_name}: {reason}", file=file)
+        print(file=file)
     
     # 3. Liquidity Analysis
     if 'liquidity' in components:
@@ -143,7 +157,7 @@ def print_report(result):
         status = liq.get('status', 'NA')
         status_info = STATUS_LEVELS.get(status, STATUS_LEVELS['NA'])
         
-        print(f"3️⃣  THANH KHOẢN {status_info['icon']} {status_info['label']}")
+        print(f"3️⃣  THANH KHOẢN {status_info['icon']} {status_info['label']}", file=file)
         
         criteria = liq.get('criteria', {})
         for criterion_name, criterion_data in criteria.items():
@@ -158,15 +172,15 @@ def print_report(result):
             }
             display_name = name_map.get(criterion_name, criterion_name.upper())
             
-            print(f"   {crit_info['icon']} {display_name}: {reason}")
-        print()
+            print(f"{crit_info['icon']} {display_name}: {reason}", file=file)
+        print(file=file)
     
-    print(f"{'='*60}\n")
+    print(f"{'='*60}\n", file=file)
 
 
 def export_json(result, filepath=None):
     """
-    Export result to JSON
+    Export result to JSON (with numpy support)
     
     Args:
         result: Analysis result dictionary
@@ -175,7 +189,7 @@ def export_json(result, filepath=None):
     Returns:
         str: JSON string
     """
-    json_str = json.dumps(result, indent=2, ensure_ascii=False)
+    json_str = json.dumps(result, indent=2, ensure_ascii=False, cls=NumpyEncoder)
     
     if filepath:
         with open(filepath, 'w', encoding='utf-8') as f:

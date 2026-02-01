@@ -56,6 +56,10 @@
         "/^/Users/khanhto/Documents/Projects/trading/trading-filter/\\.venv/bin/python research_money_flow\\.py$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^mv vnstock_analyzer/analyzers/technical\\.py vnstock_analyzer/analyzers/technical_old\\.py && mv vnstock_analyzer/analyzers/technical_new\\.py vnstock_analyzer/analyzers/technical\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     },
     "git.ignoreLimitWarning": true
