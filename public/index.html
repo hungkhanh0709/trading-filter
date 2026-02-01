@@ -30,6 +30,11 @@
             font-size: 1em;
         }
 
+        .vn100-icon {
+            color: #2196F3;
+            font-size: 1em;
+        }
+
         .matrix-cell {
             text-align: center;
             padding: 4px;
@@ -136,9 +141,11 @@
 
                         <!-- Exchange Filter Tabs -->
                         <v-tabs v-model="selectedExchange" density="compact" class="px-4">
-                            <v-tab value="ALL">Tất cả</v-tab>
+                            <v-tab value="FILTERED">Filtered</v-tab>
                             <v-tab value="HOSE">HOSE</v-tab>
                             <v-tab value="HNX">HNX</v-tab>
+                            <v-tab value="VN30">VN30</v-tab>
+                            <v-tab value="VN100">VN100</v-tab>
                         </v-tabs>
 
                         <v-data-table :headers="matrixHeaders" :items="matrixData.symbols || []" :items-per-page="100"
@@ -187,6 +194,8 @@
                                         </v-chip>
                                         <v-icon v-if="item.isVN30" icon="mdi-star" class="vn30-icon"
                                             title="VN30"></v-icon>
+                                        <v-icon v-if="item.isVN100" icon="mdi-star-outline" class="vn100-icon"
+                                            title="VN100"></v-icon>
                                     </a>
                                     <v-btn icon size="x-small" variant="text" @click.stop="analyzeSymbol(item)"
                                         :loading="item.analyzing" :color="item.analysis ? 'success' : 'primary'"
@@ -281,91 +290,19 @@
                                 <span v-else style="color: #999;">-</span>
                             </template>
 
-                            <!-- MA Alert Column - Priority Order -->
+                            <!-- MA Alert Column - Backend-Driven UI Pattern -->
                             <template v-slot:item.ma_alert="{ item }">
-                                <div v-if="item.analysis?.components?.technical?.criteria?.ma_trend"
+                                <div v-if="item.analysis?.components?.technical?.criteria?.ma_trend?.ui_alerts"
                                     style="display: flex; gap: 4px; justify-content: center;">
-
-                                    <!-- 1. SELL WARNING - Highest Priority (Action Required!) -->
+                                    <!-- Simple v-for loop - No business logic! -->
                                     <v-tooltip
-                                        v-if="item.analysis.components.technical.criteria.ma_trend.details?.sell_warning?.has_warning"
-                                        location="top">
+                                        v-for="alert in item.analysis.components.technical.criteria.ma_trend.ui_alerts"
+                                        :key="alert.type" location="top">
                                         <template v-slot:activator="{ props }">
-                                            <v-icon v-bind="props" icon="mdi-alert"
-                                                :color="item.analysis.components.technical.criteria.ma_trend.details.sell_warning.warning_level === 'HIGH' ? 'error' : 'warning'"
-                                                :size="item.analysis.components.technical.criteria.ma_trend.details.sell_warning.warning_level === 'HIGH' ? 'default' : 'small'"
-                                                :class="item.analysis.components.technical.criteria.ma_trend.details.sell_warning.warning_level === 'HIGH' ? 'pulse-animation' : ''"></v-icon>
+                                            <v-icon v-bind="props" :icon="alert.icon" :color="alert.color"
+                                                :size="alert.size" :class="alert.animation"></v-icon>
                                         </template>
-                                        <div>
-                                            <strong>🚨 CẢNH BÁO BÁN ({{
-                                                item.analysis.components.technical.criteria.ma_trend.details.sell_warning.warning_level
-                                                }})</strong><br>
-                                            <div v-for="warning in item.analysis.components.technical.criteria.ma_trend.details.sell_warning.warnings"
-                                                :key="warning" style="color: #ff5252;">• {{ warning }}</div>
-                                            <div class="mt-1" style="font-weight: 600;">👉 Đề xuất: {{
-                                                item.analysis.components.technical.criteria.ma_trend.details.sell_warning.suggested_action
-                                                }}</div>
-                                        </div>
-                                    </v-tooltip>
-
-                                    <!-- 2. CONVERGENCE - Breakout sắp xảy ra (Prepare to Buy!) -->
-                                    <v-tooltip
-                                        v-if="item.analysis.components.technical.criteria.ma_trend.details?.convergence?.is_converging"
-                                        location="top">
-                                        <template v-slot:activator="{ props }">
-                                            <v-icon v-bind="props" icon="mdi-arrow-collapse" color="purple"
-                                                size="small"></v-icon>
-                                        </template>
-                                        <div>
-                                            <strong>🔄 BREAKOUT SẮP XẢY RA (MA Convergence)</strong><br>
-                                            <span style="color: #9c27b0; font-weight: 600;">⚡ Chuẩn bị điểm mua
-                                                tốt!</span><br>
-                                            Khoảng cách TB: {{
-                                            item.analysis.components.technical.criteria.ma_trend.details.convergence.avg_distance?.toFixed(1)
-                                            }}%<br>
-                                            {{
-                                            item.analysis.components.technical.criteria.ma_trend.details.convergence.message
-                                            }}
-                                        </div>
-                                    </v-tooltip>
-
-                                    <!-- 3. GOLDEN CROSS - Vừa cross (Can Buy) -->
-                                    <v-tooltip
-                                        v-if="item.analysis.components.technical.criteria.ma_trend.details?.golden_cross?.best_cross"
-                                        location="top">
-                                        <template v-slot:activator="{ props }">
-                                            <v-icon v-bind="props" icon="mdi-star-circle" color="amber"
-                                                size="small"></v-icon>
-                                        </template>
-                                        <div>
-                                            <strong>⭐ Golden Cross - Có thể mua</strong><br>
-                                            {{
-                                            item.analysis.components.technical.criteria.ma_trend.details.golden_cross.best_cross.label
-                                            }}<br>
-                                            Credibility: {{
-                                            item.analysis.components.technical.criteria.ma_trend.details.golden_cross.best_cross.credibility_points
-                                            }} pts
-                                        </div>
-                                    </v-tooltip>
-
-                                    <!-- 4. EXPANSION - Đang tăng tốt (Hold) -->
-                                    <v-tooltip
-                                        v-if="item.analysis.components.technical.criteria.ma_trend.details?.expansion?.is_expanding"
-                                        location="top">
-                                        <template v-slot:activator="{ props }">
-                                            <v-icon v-bind="props" icon="mdi-arrow-expand"
-                                                :color="item.analysis.components.technical.criteria.ma_trend.details.expansion.expansion_quality === 'STRONG' ? 'green' : 'blue'"
-                                                size="small"></v-icon>
-                                        </template>
-                                        <div>
-                                            <strong>📈 MA Expansion - Giữ tiếp</strong><br>
-                                            Mức độ: {{
-                                            item.analysis.components.technical.criteria.ma_trend.details.expansion.expansion_quality
-                                            }}<br>
-                                            {{
-                                            item.analysis.components.technical.criteria.ma_trend.details.expansion.message
-                                            }}
-                                        </div>
+                                        <div v-html="alert.tooltip"></div>
                                     </v-tooltip>
                                 </div>
                                 <span v-else style="color: #999;">-</span>
@@ -419,7 +356,7 @@
                     loading: false,
                     loadingPrices: false,
                     processing: false,
-                    selectedExchange: 'ALL',
+                    selectedExchange: 'FILTERED',
                     matrixData: {
                         dates: [],
                         symbols: [],

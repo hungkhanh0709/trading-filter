@@ -11,6 +11,8 @@ from .analyzers import (
     FundamentalAnalyzer,
     LiquidityAnalyzer,
 )
+from .utils import get_logger, LogLevel
+
 
 class StockScorer:
     """Main scoring engine - orchestrates all analyzers"""
@@ -26,6 +28,7 @@ class StockScorer:
         self.symbol = symbol
         self.source = source
         self.fetcher = DataFetcher(symbol, source)
+        self.logger = get_logger(symbol, LogLevel.INFO)
         
     def _calculate_tier(self, total_score):
         """
@@ -90,12 +93,12 @@ class StockScorer:
         Returns:
             dict: Complete analysis result
         """
-        print(f"\n{'='*60}", file=sys.stderr)
-        print(f"🎯 PHÂN TÍCH CỔ PHIẾU: {self.symbol}", file=sys.stderr)
-        print(f"{'='*60}\n", file=sys.stderr)
+        self.logger.section(f"PHÂN TÍCH CỔ PHIẾU: {self.symbol}")
         
         # Fetch data
+        self.logger.info("Fetching market data...")
         if not self.fetcher.fetch_all_data():
+            self.logger.error("Failed to fetch data")
             return None
         
         # Get cached data
@@ -103,7 +106,7 @@ class StockScorer:
         df_ratio = self.fetcher.get_data('ratio')
         
         # Run analyzers
-        print(f"🔍 Đang phân tích...\n", file=sys.stderr)
+        self.logger.info("Running analysis modules...")
         
         technical = TechnicalAnalyzer(df_history)
         fundamental = FundamentalAnalyzer(df_ratio)
@@ -128,6 +131,8 @@ class StockScorer:
         # Generate recommendation based on tier and technical signal
         tech_signal = tech_result.get('signal', 'HOLD')
         recommendation = self._generate_recommendation(tier, tech_signal)
+        
+        self.logger.success(f"Analysis complete", tier=tier, signal=tech_signal)
         
         result = {
             'symbol': self.symbol,

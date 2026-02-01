@@ -20,6 +20,7 @@ const getTradingViewUrl = (exchange, symbol) => {
 const RAW_FILE = path.join(__dirname, 'data', 'raw.json');
 const DATA_FILE = path.join(__dirname, 'data', 'data.json');
 const VN30_FILE = path.join(__dirname, 'data', 'vn30.json');
+const VN100_FILE = path.join(__dirname, 'data', 'vn100.json');
 const PYTHON_VENV = path.join(__dirname, '.venv', 'bin', 'python');
 const FETCH_PRICES_SCRIPT = path.join(__dirname, 'scripts', 'fetch_prices.py');
 const ANALYZE_STOCK_SCRIPT = path.join(__dirname, 'scripts', 'analyze_stock.py');
@@ -52,6 +53,16 @@ try {
     console.log(`✅ Loaded ${vn30List.length} VN30 symbols`);
 } catch (error) {
     console.error('❌ Error loading VN30 data:', error.message);
+}
+
+// Load VN100 list
+let vn100List = [];
+try {
+    const vn100Data = JSON.parse(fs.readFileSync(VN100_FILE, 'utf8'));
+    vn100List = vn100Data.symbols || [];
+    console.log(`✅ Loaded ${vn100List.length} VN100 symbols`);
+} catch (error) {
+    console.error('❌ Error loading VN100 data:', error.message);
 }
 
 /**
@@ -279,27 +290,227 @@ app.get('/api/stocks', (req, res) => {
 });
 
 /**
+ * Helper function to build matrix data from a predefined symbol list (VN30/VN100)
+ * Shows FULL list of symbols with status based on actual appearance in data.json
+ */
+function buildMatrixFromSymbolList(symbolList, allResults, maxDays) {
+    const latestDates = allResults.slice(0, maxDays);
+
+    if (latestDates.length === 0) {
+        return {
+            latestDates: [],
+            matrixData: [],
+            dateSymbolsMap: {}
+        };
+    }
+
+    // Build map of symbols appearing in each date
+    const dateSymbolsMap = {};
+    latestDates.forEach(dateData => {
+        dateSymbolsMap[dateData.date] = new Set(dateData.stocks.map(s => s.symbol));
+    });
+
+    // Build matrix for FILTERED symbols in the list (even if not in data.json)
+    const matrixData = symbolList.map(symbol => {
+        // Find exchange from stocks data (default to HOSE if not found)
+        let exchange = 'HOSE';
+        for (const dateData of latestDates) {
+            const stock = dateData.stocks.find(s => s.symbol === symbol);
+            if (stock && stock.exchange) {
+                exchange = stock.exchange;
+                break;
+            }
+        }
+
+        // Check index membership
+        const isVN30 = vn30List.includes(symbol);
+        const isVN100 = vn100List.includes(symbol);
+
+        // Build day status for each date
+        const days = latestDates.map((dateData, index) => {
+            const hasSymbol = dateSymbolsMap[dateData.date].has(symbol);
+
+            // Determine status
+            let status = 'absent'; // default for symbols not in data.json
+
+            if (hasSymbol) {
+                // Only mark as NEW if it's the FIRST date (most recent) AND not in second date
+                if (index === 0) {
+                    const hasInSecondDate = latestDates.length > 1
+                        ? dateSymbolsMap[latestDates[1].date].has(symbol)
+                        : false;
+                    status = hasInSecondDate ? 'normal' : 'new';
+                } else {
+                    // For older dates, just mark as normal
+                    status = 'normal';
+                }
+            }
+
+            return {
+                date: dateData.date,
+                dateFormatted: dateData.dateFormatted,
+                hasSymbol,
+                status
+            };
+        });
+
+        // Generate TradingView URL
+        const tradingViewUrl = getTradingViewUrl(exchange, symbol);
+
+        return {
+            symbol,
+            exchange,
+            isVN30,
+            isVN100,
+            tradingViewUrl,
+            days,
+            price: null,
+            changePercent: null,
+            priceError: null
+        };
+    });
+
+    return { latestDates, matrixData, dateSymbolsMap };
+}
+
+/**
  * GET /api/stocks/matrix
  * Returns matrix view of stocks across multiple dates
  * Shows NEW/NORMAL/REMOVED/ABSENT status for each symbol
- * Includes current price and percent change for each symbol
+ * 
+ * For VN30/VN100: Shows FULL list (30/100 symbols) with status from data.json
+ * For FILTERED/HOSE/HNX: Shows only symbols appearing in data.json
  */
 app.get('/api/stocks/matrix', async (req, res) => {
     try {
-        const exchangeFilter = req.query.exchange || 'ALL'; // ALL, HOSE, or HNX
+        const exchangeFilter = req.query.exchange || 'FILTERED'; // FILTERED, HOSE, HNX, VN30, VN100
         const allResults = loadFilterResults();
 
-        // Filter by exchange if specified
-        const results = exchangeFilter === 'ALL'
-            ? allResults
-            : allResults.map(dateData => ({
-                ...dateData,
-                stocks: dateData.stocks.filter(s => s.exchange === exchangeFilter)
-            }));
+        let latestDates, matrixData, dateSymbolsMap;
 
-        // Get latest N dates
-        const latestDates = results.slice(0, MAX_DAYS);
+        // Handle VN30/VN100 differently - show FULL list
+        if (exchangeFilter === 'VN30') {
+            const result = buildMatrixFromSymbolList(vn30List, allResults, MAX_DAYS);
+            latestDates = result.latestDates;
+            matrixData = result.matrixData;
+            dateSymbolsMap = result.dateSymbolsMap;
+        } else if (exchangeFilter === 'VN100') {
+            const result = buildMatrixFromSymbolList(vn100List, allResults, MAX_DAYS);
+            latestDates = result.latestDates;
+            matrixData = result.matrixData;
+            dateSymbolsMap = result.dateSymbolsMap;
+        } else {
+            // FILTERED/HOSE/HNX: Filter from data.json (existing logic)
+            let results;
+            if (exchangeFilter === 'FILTERED') {
+                results = allResults;
+            } else {
+                // HOSE or HNX
+                results = allResults.map(dateData => ({
+                    ...dateData,
+                    stocks: dateData.stocks.filter(s => s.exchange === exchangeFilter)
+                }));
+            }
 
+            // Get latest N dates
+            latestDates = results.slice(0, MAX_DAYS);
+
+            // Get latest N dates
+            latestDates = results.slice(0, MAX_DAYS);
+
+            if (latestDates.length === 0) {
+                return res.json({
+                    success: true,
+                    data: {
+                        dates: [],
+                        symbols: [],
+                        stats: {
+                            totalSymbols: 0,
+                            totalDates: 0,
+                            vn30Count: 0,
+                            vn100Count: 0
+                        }
+                    }
+                });
+            }
+
+            // Collect all unique symbols across all dates
+            const allSymbolsSet = new Set();
+            dateSymbolsMap = {}; // { '20260120': Set(['ACB', 'BID', ...]) }
+
+            latestDates.forEach(dateData => {
+                const symbols = new Set(dateData.stocks.map(s => s.symbol));
+                dateSymbolsMap[dateData.date] = symbols;
+                symbols.forEach(sym => allSymbolsSet.add(sym));
+            });
+
+            // Get all symbols (sorted)
+            const allSymbols = Array.from(allSymbolsSet).sort();
+
+            // Build matrix data
+            matrixData = allSymbols.map(symbol => {
+                // Find exchange from stocks data
+                let exchange = 'HOSE';
+                for (const dateData of latestDates) {
+                    const stock = dateData.stocks.find(s => s.symbol === symbol);
+                    if (stock && stock.exchange) {
+                        exchange = stock.exchange;
+                        break;
+                    }
+                }
+
+                // Check if VN30
+                const isVN30 = vn30List.includes(symbol);
+
+                // Check if VN100
+                const isVN100 = vn100List.includes(symbol);
+
+                // Build day status for each date
+                const days = latestDates.map((dateData, index) => {
+                    const hasSymbol = dateSymbolsMap[dateData.date].has(symbol);
+
+                    // Determine status
+                    let status = 'absent'; // default
+
+                    if (hasSymbol) {
+                        // Only mark as NEW if it's the FIRST date (most recent) AND not in second date
+                        if (index === 0) {
+                            const hasInSecondDate = latestDates.length > 1 ? dateSymbolsMap[latestDates[1].date].has(symbol) : false;
+                            status = hasInSecondDate ? 'normal' : 'new';
+                        } else {
+                            // For older dates, just mark as normal
+                            status = 'normal';
+                        }
+                    }
+
+                    return {
+                        date: dateData.date,
+                        dateFormatted: dateData.dateFormatted,
+                        hasSymbol,
+                        status
+                    };
+                });
+
+                // Generate TradingView URL
+                const tradingViewUrl = getTradingViewUrl(exchange, symbol);
+
+                return {
+                    symbol,
+                    exchange,
+                    isVN30,
+                    isVN100,
+                    tradingViewUrl,
+                    days,
+                    price: null,
+                    changePercent: null,
+                    priceError: null
+                };
+            });
+        }
+
+        // Common response handling for all filter types
+
+        // Common response handling for all filter types
         if (latestDates.length === 0) {
             return res.json({
                 success: true,
@@ -309,90 +520,19 @@ app.get('/api/stocks/matrix', async (req, res) => {
                     stats: {
                         totalSymbols: 0,
                         totalDates: 0,
-                        vn30Count: 0
+                        vn30Count: 0,
+                        vn100Count: 0
                     }
                 }
             });
         }
 
-        // Collect all unique symbols across all dates
-        const allSymbolsSet = new Set();
-        const dateSymbolsMap = {}; // { '20260120': Set(['ACB', 'BID', ...]) }
-
-        latestDates.forEach(dateData => {
-            const symbols = new Set(dateData.stocks.map(s => s.symbol));
-            dateSymbolsMap[dateData.date] = symbols;
-            symbols.forEach(sym => allSymbolsSet.add(sym));
-        });
-
-        // Get all symbols (don't fetch prices here - let frontend do it separately)
-        const allSymbols = Array.from(allSymbolsSet).sort();
-        const priceData = {}; // Empty - prices will be fetched separately by frontend
-
-        // Build matrix data
-        const matrixData = allSymbols.map(symbol => {
-            // Find exchange from stocks data
-            let exchange = 'HOSE';
-            for (const dateData of latestDates) {
-                const stock = dateData.stocks.find(s => s.symbol === symbol);
-                if (stock && stock.exchange) {
-                    exchange = stock.exchange;
-                    break;
-                }
-            }
-
-            // Check if VN30
-            const isVN30 = vn30List.includes(symbol);
-
-            // Build day status for each date
-            const days = latestDates.map((dateData, index) => {
-                const hasSymbol = dateSymbolsMap[dateData.date].has(symbol);
-
-                // Determine status
-                let status = 'absent'; // default
-
-                if (hasSymbol) {
-                    // Only mark as NEW if it's the FIRST date (most recent) AND not in second date
-                    if (index === 0) {
-                        const hasInSecondDate = latestDates.length > 1 ? dateSymbolsMap[latestDates[1].date].has(symbol) : false;
-                        status = hasInSecondDate ? 'normal' : 'new';
-                    } else {
-                        // For older dates, just mark as normal
-                        status = 'normal';
-                    }
-                }
-
-                return {
-                    date: dateData.date,
-                    dateFormatted: dateData.dateFormatted,
-                    hasSymbol,
-                    status
-                };
-            });
-
-            // Generate TradingView URL
-            const tradingViewUrl = getTradingViewUrl(exchange, symbol);
-
-            // Get price data
-            const symbolPrice = priceData[symbol] || {};
-
-            return {
-                symbol,
-                exchange,
-                isVN30,
-                tradingViewUrl,
-                days,
-                price: symbolPrice.price || null,
-                changePercent: symbolPrice.changePercent || null,
-                priceError: symbolPrice.error || null
-            };
-        });
-
         // Calculate stats
         const stats = {
-            totalSymbols: allSymbols.length,
+            totalSymbols: matrixData.length,
             totalDates: latestDates.length,
             vn30Count: matrixData.filter(s => s.isVN30).length,
+            vn100Count: matrixData.filter(s => s.isVN100).length,
             latestDate: latestDates[0].dateFormatted,
             // Additional stats
             newSymbols: matrixData.filter(s => s.days[0].status === 'new').length,
@@ -405,11 +545,13 @@ app.get('/api/stocks/matrix', async (req, res) => {
                 dates: latestDates.map(d => {
                     const dateSymbols = d.stocks.map(s => s.symbol);
                     const vn30CountForDate = dateSymbols.filter(sym => vn30List.includes(sym)).length;
+                    const vn100CountForDate = dateSymbols.filter(sym => vn100List.includes(sym)).length;
                     return {
                         date: d.date,
                         dateFormatted: d.dateFormatted,
                         count: d.totalStocks,
-                        vn30Count: vn30CountForDate
+                        vn30Count: vn30CountForDate,
+                        vn100Count: vn100CountForDate
                     };
                 }),
                 symbols: matrixData,

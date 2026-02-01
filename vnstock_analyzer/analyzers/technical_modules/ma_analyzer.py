@@ -460,5 +460,107 @@ class MAAnalyzer:
                 'golden_cross': golden_cross,
                 'sell_warning': sell_warning,
                 'price_position': price_position
-            }
+            },
+            # UI-READY FORMAT (Backend-driven UI pattern)
+            'ui_alerts': self._format_ui_alerts(sell_warning, convergence, golden_cross, expansion)
         }
+    
+    def _format_ui_alerts(self, sell_warning, convergence, golden_cross, expansion):
+        """
+        Format MA alerts for UI rendering (Backend-driven pattern)
+        UI chỉ cần v-for loop qua array này, không cần business logic
+        
+        Args:
+            sell_warning: Sell warning detection result
+            convergence: Convergence detection result
+            golden_cross: Golden cross detection result
+            expansion: Expansion detection result
+            
+        Returns:
+            list: Array of UI-ready alert objects sorted by priority
+        """
+        alerts = []
+        
+        # 1. SELL WARNING - Highest priority (action required!)
+        if sell_warning.get('has_warning'):
+            level = sell_warning.get('warning_level', 'MEDIUM')
+            
+            # Build tooltip HTML
+            warnings_html = '<br>'.join([f'• {w}' for w in sell_warning.get('warnings', [])])
+            tooltip = (
+                f"<strong>🚨 CẢNH BÁO BÁN ({level})</strong><br>"
+                f"<div style='color: #ff5252;'>{warnings_html}</div>"
+                f"<div style='font-weight: 600; margin-top: 4px;'>👉 Đề xuất: {sell_warning.get('suggested_action', '')}</div>"
+            )
+            
+            alerts.append({
+                'type': 'sell_warning',
+                'priority': 1,
+                'icon': 'mdi-alert',
+                'color': 'error' if level == 'HIGH' else 'warning',
+                'size': 'default' if level == 'HIGH' else 'small',
+                'animation': 'pulse-animation' if level == 'HIGH' else '',
+                'tooltip': tooltip
+            })
+        
+        # 2. CONVERGENCE - Breakout signal (prepare to buy!)
+        if convergence.get('is_converging'):
+            tooltip = (
+                f"<strong>🔄 BREAKOUT SẮP XẢY RA (MA Convergence)</strong><br>"
+                f"<span style='color: #9c27b0; font-weight: 600;'>⚡ Chuẩn bị điểm mua tốt!</span><br>"
+                f"Khoảng cách TB: {convergence.get('avg_distance', 0):.1f}%<br>"
+                f"{convergence.get('message', '')}"
+            )
+            
+            alerts.append({
+                'type': 'convergence',
+                'priority': 2,
+                'icon': 'mdi-arrow-collapse',
+                'color': 'purple',
+                'size': 'small',
+                'animation': '',
+                'tooltip': tooltip
+            })
+        
+        # 3. GOLDEN CROSS - Buy signal (can buy)
+        if golden_cross.get('best_cross'):
+            cross = golden_cross['best_cross']
+            tooltip = (
+                f"<strong>⭐ Golden Cross - Có thể mua</strong><br>"
+                f"{cross.get('label', '')}<br>"
+                f"Credibility: {cross.get('credibility_points', 0)} pts"
+            )
+            
+            alerts.append({
+                'type': 'golden_cross',
+                'priority': 3,
+                'icon': 'mdi-star-circle',
+                'color': 'amber',
+                'size': 'small',
+                'animation': '',
+                'tooltip': tooltip
+            })
+        
+        # 4. EXPANSION - Uptrend confirmation (hold)
+        if expansion.get('is_expanding'):
+            quality = expansion.get('expansion_quality', 'WEAK')
+            tooltip = (
+                f"<strong>📈 MA Expansion - Giữ tiếp</strong><br>"
+                f"Mức độ: {quality}<br>"
+                f"{expansion.get('message', '')}"
+            )
+            
+            alerts.append({
+                'type': 'expansion',
+                'priority': 4,
+                'icon': 'mdi-arrow-expand',
+                'color': 'green' if quality == 'STRONG' else 'blue',
+                'size': 'small',
+                'animation': '',
+                'tooltip': tooltip
+            })
+        
+        # Sort by priority
+        alerts.sort(key=lambda x: x['priority'])
+        
+        return alerts

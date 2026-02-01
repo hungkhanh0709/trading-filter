@@ -21,6 +21,24 @@ class NumpyEncoder(json.JSONEncoder):
         return super(NumpyEncoder, self).default(obj)
 
 
+# Import logger
+try:
+    from .utils.logger import get_logger, LogLevel
+except ImportError:
+    # Fallback if logger not available
+    class LogLevel:
+        DEBUG = INFO = SUCCESS = WARNING = ERROR = 0
+    def get_logger(*args, **kwargs):
+        class FallbackLogger:
+            def debug(self, *a, **k): pass
+            def info(self, *a, **k): pass
+            def success(self, *a, **k): pass
+            def warning(self, *a, **k): pass
+            def error(self, *a, **k): pass
+            def section(self, *a, **k): pass
+        return FallbackLogger()
+
+
 def print_report(result, file=sys.stderr):
     """
     In báo cáo theo định dạng status-based (không hiển thị điểm số)

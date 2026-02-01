@@ -164,7 +164,8 @@ class TechnicalAnalyzer:
             'ma_trend': {
                 'status': ma_result['status'],
                 'reasons': ma_result['reasons'],  # ARRAY!
-                'details': ma_result.get('details', {})
+                'details': ma_result.get('details', {}),
+                'ui_alerts': ma_result.get('ui_alerts', [])  # UI-READY FORMAT!
             },
             'rsi': {
                 'status': rsi_result['status'],
