@@ -142,13 +142,6 @@
 
             <v-main>
                 <v-container fluid>
-                    <!-- Disclaimer Banner -->
-                    <v-alert type="info" variant="tonal" density="compact" class="mb-3" icon="mdi-information">
-                        <strong>Lưu ý quan trọng:</strong> Tool này CHỈ cung cấp thông tin phân tích kỹ thuật về Moving
-                        Average, KHÔNG phải lời khuyên đầu tư.
-                        Người dùng tự chịu trách nhiệm về quyết định giao dịch của mình.
-                    </v-alert>
-
                     <!-- Matrix Table -->
                     <v-card>
                         <v-card-title>
@@ -187,16 +180,6 @@
                                 </div>
                             </template>
 
-                            <!-- Custom Date Headers -->
-                            <template v-for="(date, index) in matrixData.dates" :key="`header-${index}`"
-                                v-slot:[`header.day${index}`]>
-                                <div style="text-align: center; line-height: 1.2;">
-                                    <div>{{ date.dateFormatted }}</div>
-                                    <div style="color: #666;">({{ date.vn30Count }}/{{ date.count }})
-                                    </div>
-                                </div>
-                            </template>
-
                             <!-- Symbol Column with Analyze Button -->
                             <template v-slot:item.symbol="{ item }">
                                 <div style="display: flex; gap: 6px;">
@@ -231,67 +214,80 @@
                                 </div>
                             </template>
 
-                            <!-- Date Columns -->
-                            <template v-for="(date, index) in matrixData.dates" :key="date.date"
-                                v-slot:[`item.day${index}`]="{ item }">
-                                <div class="matrix-cell">
-                                    <v-icon v-if="item.days[index].status === 'new'" icon="mdi-checkbox-marked-circle"
-                                        class="status-new" title="Mới"></v-icon>
-                                    <v-icon v-else-if="item.days[index].status === 'normal'" icon="mdi-checkbox-marked"
-                                        class="status-normal" title="Bình thường"></v-icon>
-                                    <v-icon v-else-if="item.days[index].status === 'removed'" icon="mdi-close-circle"
-                                        class="status-removed" title="Sắp loại"></v-icon>
-                                    <v-icon v-else icon="mdi-minus" class="status-absent" title="Không có"></v-icon>
-                                </div>
-                            </template>
-
                             <!-- Perfect Order Column -->
                             <template v-slot:item.perfect_order="{ item }">
-                                <v-tooltip v-if="item.analysis?.current_state?.details?.perfect_order !== undefined"
-                                    location="top">
+                                <v-icon v-if="item.analysis?.perfect_order" icon="mdi-check-circle"
+                                    color="success"></v-icon>
+                                <v-icon v-else-if="item.analysis" icon="mdi-close-circle" color="grey"
+                                    size="small"></v-icon>
+                                <span v-else style="color: #999;">-</span>
+                            </template>
+
+                            <!-- Status Column -->
+                            <template v-slot:item.status="{ item }">
+                                <v-chip v-if="item.analysis?.status" :color="getStatusColor(item.analysis.status)"
+                                    size="small" variant="flat">
+                                    {{ item.analysis.status }}
+                                </v-chip>
+                                <span v-else style="color: #999;">-</span>
+                            </template>
+
+                            <!-- Signal Column -->
+                            <template v-slot:item.signal="{ item }">
+                                <div v-if="item.analysis?.signal" style="font-size: 1.2em;">
+                                    {{ getSignalIcon(item.analysis.signal) }}
+                                </div>
+                                <span v-else style="color: #999;">-</span>
+                            </template>
+
+                            <!-- Expansion Column -->
+                            <template v-slot:item.expansion="{ item }">
+                                <v-tooltip v-if="item.analysis?.columns" location="top">
                                     <template v-slot:activator="{ props }">
-                                        <v-icon v-bind="props" v-if="item.analysis.current_state.details.perfect_order"
-                                            icon="mdi-check-circle" color="success" size="small"></v-icon>
-                                        <v-icon v-bind="props" v-else icon="mdi-close-circle" color="grey"
-                                            size="small"></v-icon>
+                                        <v-chip v-if="getColumn(item.analysis.columns, 'expansion')" v-bind="props"
+                                            :color="getColumn(item.analysis.columns, 'expansion').color"
+                                            :prepend-icon="getColumn(item.analysis.columns, 'expansion').icon"
+                                            size="small" variant="flat">
+                                            {{ getColumn(item.analysis.columns, 'expansion').value }}
+                                        </v-chip>
+                                        <span v-else style="color: #999;">-</span>
                                     </template>
-                                    <div style="max-width: 250px;">
-                                        <div v-if="item.analysis.current_state.details.perfect_order">
-                                            <strong>✅ Perfect Order</strong><br>
-                                            MA10 > MA20 > MA50
-                                        </div>
-                                        <div v-else>
-                                            <strong>Vị trí giá:</strong><br>
-                                            vs MA50: {{
-                                            item.analysis.current_state.details.price_position?.vs_ma50?.toFixed(1)
-                                            }}%<br>
-                                            vs MA20: {{
-                                            item.analysis.current_state.details.price_position?.vs_ma20?.toFixed(1)
-                                            }}%<br>
-                                            vs MA10: {{
-                                            item.analysis.current_state.details.price_position?.vs_ma10?.toFixed(1) }}%
-                                        </div>
-                                    </div>
+                                    <div v-html="getColumn(item.analysis.columns, 'expansion').tooltip"></div>
                                 </v-tooltip>
                                 <span v-else style="color: #999;">-</span>
                             </template>
 
-                            <!-- MA Signals Column - Factual signals only (NO advice) -->
-                            <template v-slot:item.ma_signals="{ item }">
-                                <div v-if="item.analysis?.current_state?.ma_signals?.length > 0"
-                                    style="display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; max-width: 180px;">
-                                    <!-- Display factual MA signals from backend -->
-                                    <v-tooltip v-for="signal in item.analysis.current_state.ma_signals"
-                                        :key="signal.type" location="top">
-                                        <template v-slot:activator="{ props }">
-                                            <v-chip v-bind="props" :color="signal.color" size="small"
-                                                :prepend-icon="signal.icon" variant="flat" style="font-size: 0.75em;">
-                                                {{ signal.label }}
-                                            </v-chip>
-                                        </template>
-                                        <div v-html="signal.tooltip" style="max-width: 350px;"></div>
-                                    </v-tooltip>
-                                </div>
+                            <!-- Momentum Column -->
+                            <template v-slot:item.momentum="{ item }">
+                                <v-tooltip v-if="item.analysis?.columns" location="top">
+                                    <template v-slot:activator="{ props }">
+                                        <v-chip v-if="getColumn(item.analysis.columns, 'momentum')" v-bind="props"
+                                            :color="getColumn(item.analysis.columns, 'momentum').color"
+                                            :prepend-icon="getColumn(item.analysis.columns, 'momentum').icon"
+                                            size="small" variant="flat">
+                                            {{ getColumn(item.analysis.columns, 'momentum').value }}
+                                        </v-chip>
+                                        <span v-else style="color: #999;">-</span>
+                                    </template>
+                                    <div v-html="getColumn(item.analysis.columns, 'momentum').tooltip"></div>
+                                </v-tooltip>
+                                <span v-else style="color: #999;">-</span>
+                            </template>
+
+                            <!-- Price vs MA Column -->
+                            <template v-slot:item.price_vs_ma="{ item }">
+                                <v-tooltip v-if="item.analysis?.columns" location="top">
+                                    <template v-slot:activator="{ props }">
+                                        <v-chip v-if="getColumn(item.analysis.columns, 'price_position')" v-bind="props"
+                                            :color="getColumn(item.analysis.columns, 'price_position').color"
+                                            :prepend-icon="getColumn(item.analysis.columns, 'price_position').icon"
+                                            size="small" variant="flat">
+                                            {{ getColumn(item.analysis.columns, 'price_position').value }}
+                                        </v-chip>
+                                        <span v-else style="color: #999;">-</span>
+                                    </template>
+                                    <div v-html="getColumn(item.analysis.columns, 'price_position').tooltip"></div>
+                                </v-tooltip>
                                 <span v-else style="color: #999;">-</span>
                             </template>
                         </v-data-table>
@@ -387,50 +383,64 @@
                     };
                 },
                 matrixHeaders() {
-                    const headers = [
+                    return [
                         {
                             title: 'Mã CK',
                             key: 'symbol',
                             align: 'start',
                             sortable: true,
-                            width: '120px'
+                            width: '100px'
                         },
                         {
                             title: 'Giá',
                             key: 'price',
                             align: 'end',
                             sortable: true,
-                            width: '120px'
+                            width: '100px'
                         },
-                        // MA Signals - Factual data only (NO advice)
+                        {
+                            title: 'Status',
+                            key: 'status',
+                            align: 'center',
+                            sortable: true,
+                            width: '100px'
+                        },
+                        {
+                            title: 'Signal',
+                            key: 'signal',
+                            align: 'center',
+                            sortable: true,
+                            width: '80px'
+                        },
                         {
                             title: 'Perfect Order',
                             key: 'perfect_order',
                             align: 'center',
                             sortable: true,
-                            width: '70px'
+                            width: '80px'
                         },
                         {
-                            title: 'MA Signals',
-                            key: 'ma_signals',
+                            title: 'Expansion',
+                            key: 'expansion',
                             align: 'center',
-                            sortable: false,
-                            width: '150px'
+                            sortable: true,
+                            width: '140px'
                         },
-                    ];
-
-                    // Add date columns
-                    this.matrixData.dates.forEach((date, index) => {
-                        headers.push({
-                            title: date.dateFormatted,
-                            key: `day${index}`,
+                        {
+                            title: 'Momentum',
+                            key: 'momentum',
                             align: 'center',
-                            sortable: false,
-                            width: '120px'
-                        });
-                    });
-
-                    return headers;
+                            sortable: true,
+                            width: '140px'
+                        },
+                        {
+                            title: 'Price vs MA',
+                            key: 'price_vs_ma',
+                            align: 'center',
+                            sortable: true,
+                            width: '140px'
+                        }
+                    ];
                 }
             },
             mounted() {
@@ -739,6 +749,22 @@
                         'SELL': 'error'
                     };
                     return colors[signal] || 'grey';
+                },
+
+                getSignalIcon(signal) {
+                    const icons = {
+                        'STRONG_BUY': '🟢🟢',
+                        'BUY': '🟢',
+                        'HOLD': '⚪',
+                        'CAUTION': '🟡',
+                        'SELL': '🔴',
+                        'STRONG_SELL': '🔴🔴'
+                    };
+                    return icons[signal] || '⚪';
+                },
+
+                getColumn(columns, type) {
+                    return columns.find(col => col.type === type);
                 },
 
                 getWarningColor(level) {

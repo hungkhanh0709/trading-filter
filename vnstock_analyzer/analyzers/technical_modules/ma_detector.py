@@ -163,6 +163,8 @@ def detect_expansion(df):
         'is_expanding': expansion_quality in ['PERFECT', 'GOOD'],
         'expansion_quality': expansion_quality,
         'ma50_slope': ma50_slope,
+        'ma10_ma50_distance': dist_10_50,
+        'ma20_ma50_distance': dist_20_50,
         'distances': distances,
         'message': message
     }

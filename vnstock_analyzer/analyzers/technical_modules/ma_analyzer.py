@@ -18,6 +18,7 @@ from .ma_detector import (
 )
 from .ma_momentum import analyze_momentum
 from .ma_signal_formatter import format_ma_signals
+from .ma_column_formatter import format_ma_columns
 
 
 class MAAnalyzer:
@@ -78,16 +79,15 @@ class MAAnalyzer:
         # === 2. RUN MOMENTUM ANALYSIS ===
         momentum = analyze_momentum(self.df)
         
-        
-        # === 3. FORMAT FACTUAL MA SIGNALS (NO ADVICE) ===
-        ma_signals = format_ma_signals(
-            df=self.df,
-            golden_cross=golden_cross,
-            death_cross=death_cross,
-            convergence=convergence,
+        # === 3. FORMAT UI COLUMNS (NEW STRUCTURE) ===
+        price_position = self._get_price_position()
+        columns = format_ma_columns(
             expansion=expansion,
             momentum=momentum,
-            tight_convergence=tight_convergence
+            price_position=price_position,
+            convergence=convergence if convergence.get('is_converging') else None,
+            golden_cross=golden_cross if golden_cross.get('best_cross') else None,
+            death_cross=death_cross if death_cross.get('has_death_cross') else None
         )
         
         # === 4. CALCULATE SCORE ===
@@ -96,7 +96,7 @@ class MAAnalyzer:
             death_cross, tight_convergence, momentum
         )
         
-        # === 5. RETURN COMPREHENSIVE RESULT ===
+        # === 5. RETURN FLATTENED STRUCTURE (matching ma_result_new.json) ===
         latest = self.df.iloc[-1]
         perfect_order = (latest['MA10'] > latest['MA20'] > latest['MA50'])
         
@@ -104,17 +104,63 @@ class MAAnalyzer:
             'score': score,
             'status': status,
             'reasons': reasons,
-            'details': {
-                'perfect_order': perfect_order,
-                'expansion': expansion,
-                'convergence': convergence,
-                'golden_cross': golden_cross,
-                'death_cross': death_cross,
-                'tight_convergence': tight_convergence,
-                'momentum': momentum,
-                'price_position': self._get_price_position()
+            'perfect_order': perfect_order,
+            
+            # Flatten all MA data to top level
+            'expansion': {
+                'is_expanding': expansion.get('is_expanding'),
+                'quality': expansion.get('expansion_quality'),
+                'ma50_slope': round(expansion.get('ma50_slope', 0), 2),
+                'ma10_ma50_distance': round(expansion.get('ma10_ma50_distance', 0), 2),
+                'ma20_ma50_distance': round(expansion.get('ma20_ma50_distance', 0), 2),
+                'message': expansion.get('message', '')
             },
-            'ma_signals': ma_signals  # Factual signals only - NO advice
+            'convergence': {
+                'is_converging': convergence.get('is_converging'),
+                'is_tight': convergence.get('is_tight', False),
+                'strength': round(convergence.get('convergence_strength', 0), 2),
+                'avg_distance': round(convergence.get('avg_distance', 0), 2),
+                'message': convergence.get('message', '')
+            },
+            'golden_cross': {
+                'has_cross': golden_cross.get('has_cross', False),
+                'crosses': golden_cross.get('crosses', []),
+                'message': golden_cross.get('message', '')
+            },
+            'death_cross': {
+                'has_cross': death_cross.get('has_death_cross', False),
+                'crosses': death_cross.get('crosses', []),
+                'price_below_ma10': death_cross.get('price_below_ma', {}).get('ma10', False),
+                'price_below_ma20': death_cross.get('price_below_ma', {}).get('ma20', False),
+                'price_below_ma50': death_cross.get('price_below_ma', {}).get('ma50', False)
+            },
+            'momentum': {
+                'ma10': {
+                    'slope': round(momentum.get('ma10', {}).get('slope', 0), 2),
+                    'trend': momentum.get('ma10', {}).get('trend'),
+                    'strength': momentum.get('ma10', {}).get('strength')
+                },
+                'ma20': {
+                    'slope': round(momentum.get('ma20', {}).get('slope', 0), 2),
+                    'trend': momentum.get('ma20', {}).get('trend'),
+                    'strength': momentum.get('ma20', {}).get('strength')
+                },
+                'ma50': {
+                    'slope': round(momentum.get('ma50', {}).get('slope', 0), 2),
+                    'trend': momentum.get('ma50', {}).get('trend'),
+                    'strength': momentum.get('ma50', {}).get('strength')
+                },
+                'alignment': momentum.get('alignment'),
+                'summary': momentum.get('summary')
+            },
+            'price_position': {
+                'vs_ma10': round(price_position.get('vs_ma10', 0), 2),
+                'vs_ma20': round(price_position.get('vs_ma20', 0), 2),
+                'vs_ma50': round(price_position.get('vs_ma50', 0), 2)
+            },
+            
+            # UI-ready columns
+            'columns': columns
         }
     
     def _calculate_score(self, expansion, convergence, golden_cross,

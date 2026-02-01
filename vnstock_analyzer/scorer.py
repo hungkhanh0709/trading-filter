@@ -55,35 +55,34 @@ class StockScorer:
         # Get MA-focused analysis
         tech_result = technical.get_analysis()
         
-        # Extract MA analysis details
-        ma_status = tech_result.get('ma_analysis', {}).get('status', 'NA')
-        tech_signal = tech_result.get('signal', 'HOLD')
-        
-        # Extract current state with factual signals
+        # Extract MA analysis - FLATTENED STRUCTURE (matching ma_result_new.json)
         ma_analysis = tech_result.get('ma_analysis', {})
-        current_state = {
-            'status': ma_status,
-            'signal': tech_signal,
-            'score': ma_analysis.get('score', 0),
-            'reasons': ma_analysis.get('reasons', []),
-            'details': ma_analysis.get('details', {}),
-            'ma_signals': ma_analysis.get('ma_signals', [])  # Factual signals only
-        }
         
-        self.logger.success(f"Analysis complete", status=ma_status, signal=tech_signal)
+        self.logger.success(f"Analysis complete", 
+                          status=ma_analysis.get('status'), 
+                          signal=tech_result.get('signal'))
         
+        # Return flattened structure
         result = {
             'symbol': self.symbol,
             'analyzed_at': datetime.now().isoformat(),
-            'signal': tech_signal,
+            'signal': tech_result.get('signal', 'HOLD'),
             
-            # Current state - Hiện trạng (FACTUAL DATA ONLY)
-            'current_state': current_state,
+            # Flatten MA analysis to top level
+            'status': ma_analysis.get('status', 'NA'),
+            'reasons': ma_analysis.get('reasons', []),
+            'perfect_order': ma_analysis.get('perfect_order', False),
             
-            # Full components (for advanced users)
-            'components': {
-                'technical': tech_result,
-            }
+            # MA components (flattened)
+            'expansion': ma_analysis.get('expansion', {}),
+            'convergence': ma_analysis.get('convergence', {}),
+            'golden_cross': ma_analysis.get('golden_cross', {}),
+            'death_cross': ma_analysis.get('death_cross', {}),
+            'momentum': ma_analysis.get('momentum', {}),
+            'price_position': ma_analysis.get('price_position', {}),
+            
+            # UI columns (NEW)
+            'columns': ma_analysis.get('columns', [])
         }
         
         return result
