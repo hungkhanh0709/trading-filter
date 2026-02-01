@@ -142,6 +142,13 @@
 
             <v-main>
                 <v-container fluid>
+                    <!-- Disclaimer Banner -->
+                    <v-alert type="info" variant="tonal" density="compact" class="mb-3" icon="mdi-information">
+                        <strong>Lưu ý quan trọng:</strong> Tool này CHỈ cung cấp thông tin phân tích kỹ thuật về Moving
+                        Average, KHÔNG phải lời khuyên đầu tư.
+                        Người dùng tự chịu trách nhiệm về quyết định giao dịch của mình.
+                    </v-alert>
+
                     <!-- Matrix Table -->
                     <v-card>
                         <v-card-title>
@@ -269,41 +276,20 @@
                                 <span v-else style="color: #999;">-</span>
                             </template>
 
-                            <!-- Forecast Column - Simple icon with tooltip -->
-                            <template v-slot:item.forecast="{ item }">
-                                <v-tooltip v-if="item.analysis?.forecast?.scenario" location="top">
-                                    <template v-slot:activator="{ props }">
-                                        <div v-bind="props" style="text-align: center; font-size: 1.2em; cursor: help;">
-                                            {{ getScenarioIcon(item.analysis.forecast.scenario.scenario) }}
-                                        </div>
-                                    </template>
-                                    <div style="max-width: 350px;">
-                                        <div><strong>{{ item.analysis.recommendation }}</strong></div>
-                                        <div class="mt-1">{{ item.analysis.forecast.scenario.description }}</div>
-                                        <div class="mt-2"
-                                            style="font-size: 0.9em; border-top: 1px solid #555; padding-top: 8px;">
-                                            ⏱️ Timeframe: {{ item.analysis.forecast.scenario.timeframe }}<br>
-                                            📊 Probability: {{ item.analysis.forecast.scenario.probability }}<br>
-                                            <strong style="color: #FFA726;">💡 {{
-                                                item.analysis.forecast.scenario.action_plan }}</strong>
-                                        </div>
-                                    </div>
-                                </v-tooltip>
-                                <span v-else style="color: #999;">-</span>
-                            </template>
-
-                            <!-- MA Alert Column - Backend-Driven UI Pattern -->
-                            <template v-slot:item.ma_alert="{ item }">
-                                <div v-if="item.analysis?.current_state?.ui_alerts?.length > 0"
-                                    style="display: flex; gap: 4px; justify-content: center;">
-                                    <!-- Simple v-for loop - No business logic! -->
-                                    <v-tooltip v-for="alert in item.analysis.current_state.ui_alerts" :key="alert.type"
-                                        location="top">
+                            <!-- MA Signals Column - Factual signals only (NO advice) -->
+                            <template v-slot:item.ma_signals="{ item }">
+                                <div v-if="item.analysis?.current_state?.ma_signals?.length > 0"
+                                    style="display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; max-width: 180px;">
+                                    <!-- Display factual MA signals from backend -->
+                                    <v-tooltip v-for="signal in item.analysis.current_state.ma_signals"
+                                        :key="signal.type" location="top">
                                         <template v-slot:activator="{ props }">
-                                            <v-icon v-bind="props" :icon="alert.icon" :color="alert.color"
-                                                :size="alert.size" :class="alert.animation"></v-icon>
+                                            <v-chip v-bind="props" :color="signal.color" size="small"
+                                                :prepend-icon="signal.icon" variant="flat" style="font-size: 0.75em;">
+                                                {{ signal.label }}
+                                            </v-chip>
                                         </template>
-                                        <div v-html="alert.tooltip"></div>
+                                        <div v-html="signal.tooltip" style="max-width: 350px;"></div>
                                     </v-tooltip>
                                 </div>
                                 <span v-else style="color: #999;">-</span>
@@ -416,7 +402,7 @@
                             sortable: true,
                             width: '120px'
                         },
-                        // MA Analysis columns
+                        // MA Signals - Factual data only (NO advice)
                         {
                             title: 'Perfect Order',
                             key: 'perfect_order',
@@ -425,18 +411,11 @@
                             width: '70px'
                         },
                         {
-                            title: 'Forecast',
-                            key: 'forecast',
-                            align: 'center',
-                            sortable: true,
-                            width: '80px'
-                        },
-                        {
-                            title: 'MA Alert',
-                            key: 'ma_alert',
+                            title: 'MA Signals',
+                            key: 'ma_signals',
                             align: 'center',
                             sortable: false,
-                            width: '100px'
+                            width: '150px'
                         },
                     ];
 

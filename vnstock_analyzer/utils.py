@@ -81,12 +81,11 @@ def print_report(result, file=sys.stderr):
         # Count passing (EXCELLENT + GOOD)
         passing_criteria += summary.get('excellent', 0) + summary.get('good', 0)
     
-    print(f"{tier_label.upper()} (đạt {passing_criteria}/{total_criteria} tiêu chí)", file=file)
-    print(f"💡 {result['recommendation']}", file=file)
+    print(f"Trạng thái: {result.get('current_state', {}).get('status', 'NA')}", file=file)
     
     # Technical signal
-    if 'technical_signal' in result:
-        signal = result['technical_signal']
+    if 'signal' in result:
+        signal = result['signal']
         signal_icons = {
             'STRONG_BUY': '🟢🟢',
             'BUY': '🟢',
@@ -96,7 +95,7 @@ def print_report(result, file=sys.stderr):
             'STRONG_SELL': '🔴🔴'
         }
         icon = signal_icons.get(signal, '⚪')
-        print(f"{icon} Tín hiệu kỹ thuật: {signal}", file=file)
+        print(f"{icon} Tín hiệu: {signal}", file=file)
     
     print(file=file)
     print(f"{'─'*60}", file=file)
