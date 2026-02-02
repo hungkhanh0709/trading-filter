@@ -32,8 +32,8 @@ def fetch_prices(symbols):
     
     for idx, symbol in enumerate(symbols, 1):
         try:
-            # Use KBS source (mới nhất trong vnstock 3.4)
-            stock = Vnstock().stock(symbol=symbol, source='KBS')
+            # Use VCI source
+            stock = Vnstock().stock(symbol=symbol, source='VCI')
             df = stock.quote.history(start=start_date, end=end_date)
             
             if df is not None and not df.empty and len(df) > 0:
