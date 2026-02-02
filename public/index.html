@@ -614,7 +614,7 @@
                 },
 
                 async analyzeBatch(symbols) {
-                    // Sequential processing with 2s delay to avoid rate limiting
+                    // Sequential processing with 1s delay to avoid rate limiting
                     for (let i = 0; i < symbols.length; i++) {
                         const item = symbols[i];
 
@@ -626,9 +626,9 @@
                             this.analyzingProgress.completed++;
                         }
 
-                        // Add 2s delay between requests (except for the last one)
+                        // Add 1s delay between requests (except for the last one)
                         if (i < symbols.length - 1) {
-                            await new Promise(resolve => setTimeout(resolve, 2000));
+                            await new Promise(resolve => setTimeout(resolve, 1000));
                         }
                     }
                 },
