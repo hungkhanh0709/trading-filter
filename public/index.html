@@ -518,7 +518,7 @@
                     this.errorSnackbar = false;
 
                     try {
-                        const response = await fetch(`/api/stocks/matrix?exchange=${this.selectedExchange}`);
+                        const response = await fetch(`/api/symbols?exchange=${this.selectedExchange}`);
                         const result = await response.json();
 
                         if (result.success) {
@@ -550,34 +550,30 @@
 
                     this.loadingPrices = true;
                     const action = forceRefresh ? 'Refreshing' : 'Fetching';
-                    console.log(`💰 ${action} prices in background...`);
-                    // Deduplicate symbols before fetching
+                    console.log(`💰 ${action} prices...`);
+
+                    // Get unique symbols
                     const uniqueSymbols = [...new Set(this.matrixData.symbols.map(s => s.symbol))];
-                    const symbols = uniqueSymbols.join(',');
-                    const url = `/api/stocks/prices?symbols=${symbols}${forceRefresh ? '&force=1' : ''}`;
 
-                    try {
-                        const response = await fetch(url);
-                        const result = await response.json();
+                    // Fetch prices one by one
+                    for (const symbolObj of this.matrixData.symbols) {
+                        try {
+                            const url = `/api/price/${symbolObj.symbol}${forceRefresh ? '?force=1' : ''}`;
+                            const response = await fetch(url);
+                            const result = await response.json();
 
-                        if (result.success) {
-                            // Update prices in matrixData
-                            this.matrixData.symbols.forEach(symbol => {
-                                const priceInfo = result.data[symbol.symbol];
-                                if (priceInfo) {
-                                    symbol.price = priceInfo.price;
-                                    symbol.changePercent = priceInfo.changePercent;
-                                    symbol.priceError = priceInfo.error;
-                                }
-                            });
-                            console.log('✅ Prices updated successfully');
+                            if (result.success && result.data) {
+                                symbolObj.price = result.data.price;
+                                symbolObj.changePercent = result.data.changePercent;
+                                symbolObj.priceError = result.data.error;
+                            }
+                        } catch (error) {
+                            console.log(`⚠️ Could not load price for ${symbolObj.symbol}:`, error.message);
                         }
-                    } catch (error) {
-                        console.log('⚠️ Could not load prices:', error.message);
-                        // Don't show error to user - prices are optional
-                    } finally {
-                        this.loadingPrices = false;
                     }
+
+                    console.log('✅ Prices updated successfully');
+                    this.loadingPrices = false;
                 },
 
                 // Auto-analysis methods
@@ -669,15 +665,14 @@
 
                     try {
                         console.log(`💰 Fetching price for ${item.symbol}...`);
-                        const response = await fetch(`/api/stocks/prices?symbols=${item.symbol}&force=1`);
+                        const response = await fetch(`/api/price/${item.symbol}?force=1`);
                         const result = await response.json();
 
-                        if (result.success && result.data[item.symbol]) {
-                            const priceInfo = result.data[item.symbol];
-                            item.price = priceInfo.price;
-                            item.changePercent = priceInfo.changePercent;
-                            item.priceError = priceInfo.error;
-                            console.log(`✅ Price updated for ${item.symbol}: ${priceInfo.price}`);
+                        if (result.success && result.data) {
+                            item.price = result.data.price;
+                            item.changePercent = result.data.changePercent;
+                            item.priceError = result.data.error;
+                            console.log(`✅ Price updated for ${item.symbol}: ${result.data.price}`);
                         } else {
                             item.priceError = 'Failed to fetch price';
                             console.error(`❌ Price fetch failed for ${item.symbol}`);
