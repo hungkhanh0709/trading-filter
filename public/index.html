@@ -495,18 +495,9 @@
                     const sign = changePercent > 0 ? '+' : '';
                     const percent = Math.abs(changePercent) < 10 ? changePercent.toFixed(1) : Math.round(changePercent);
 
-                    // Add triangle icon
-                    let icon = '';
-                    if (changePercent > 0) {
-                        icon = '▲ ';
-                    } else if (changePercent < 0) {
-                        icon = '▼ ';
-                    } else {
-                        icon = '− ';
-                    }
-
-                    return `${icon}${priceFormatted} (${sign}${percent}%)`;
+                    return `${priceFormatted} (${sign}${percent}%)`;
                 },
+
                 getChangeClass(change) {
                     if (change === null || change === undefined) return 'change-neutral';
                     if (change > 0) return 'change-positive';
@@ -685,95 +676,8 @@
                     }
                 },
 
-                // Color helpers - VN Stock Market Standard
-                getTierColor(tier) {
-                    const colors = {
-                        'S': 'purple',           // 🟣 Tăng trần - Xuất sắc
-                        'A': 'green',            // 🟢 Tăng - Rất tốt
-                        'B': 'yellow-darken-2',  // 🟡 Tham chiếu - Tốt
-                        'C': 'orange',           // 🟠 Nhẹ giảm - Trung bình
-                        'D': 'red',              // 🔴 Giảm - Kém
-                        'E': 'cyan',             // 🔵 Giảm nhiều - Rất kém
-                        'F': 'cyan-darken-2'     // 🔵 Giảm sàn - Thất bại
-                    };
-                    return colors[tier] || 'grey';
-                },
-
-                getStatusColor(status) {
-                    const colors = {
-                        'EXCELLENT': 'success',
-                        'GOOD': 'green',
-                        'ACCEPTABLE': 'blue',
-                        'WARNING': 'orange',
-                        'POOR': 'error',
-                        'NA': 'grey'
-                    };
-                    return colors[status] || 'grey';
-                },
-
-                getStatusIcon(status) {
-                    const icons = {
-                        'EXCELLENT': '🔥',
-                        'GOOD': '✅',
-                        'ACCEPTABLE': '➕',
-                        'WARNING': '⚠️',
-                        'POOR': '❌',
-                        'NA': '⚪'
-                    };
-                    return icons[status] || '-';
-                },
-
-                getScenarioIcon(scenario) {
-                    const icons = {
-                        'STRONG_UPTREND': '🚀',
-                        'BREAKOUT_SOON': '⚡',
-                        'UPTREND_CONSOLIDATION': '📈',
-                        'SIDEWAY': '↔️',
-                        'DOWNTREND_WARNING': '⚠️',
-                        'STRONG_DOWNTREND': '📉'
-                    };
-                    return icons[scenario] || '?';
-                },
-
-                getRecommendationColor(recommendation) {
-                    if (!recommendation) return '#999';
-                    if (recommendation.includes('MUA')) return '#4CAF50';
-                    if (recommendation.includes('BÁN')) return '#F44336';
-                    return '#FFA726';
-                },
-
-                getSignalColor(signal) {
-                    const colors = {
-                        'BUY': 'success',
-                        'HOLD': 'warning',
-                        'SELL': 'error'
-                    };
-                    return colors[signal] || 'grey';
-                },
-
-                getSignalIcon(signal) {
-                    const icons = {
-                        'STRONG_BUY': '🟢🟢',
-                        'BUY': '🟢',
-                        'HOLD': '⚪',
-                        'CAUTION': '🟡',
-                        'SELL': '🔴',
-                        'STRONG_SELL': '🔴🔴'
-                    };
-                    return icons[signal] || '⚪';
-                },
-
                 getColumn(columns, type) {
                     return columns.find(col => col.type === type);
-                },
-
-                getWarningColor(level) {
-                    const colors = {
-                        'HIGH': 'error',
-                        'MEDIUM': 'warning',
-                        'LOW': 'success'
-                    };
-                    return colors[level] || 'grey';
                 },
 
                 getPriceButtonTooltip(item) {

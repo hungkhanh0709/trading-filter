@@ -61,77 +61,7 @@ try {
     console.error('❌ Error loading VN100 data:', error.message);
 }
 
-/**
- * Get symbols list based on exchange filter
- * Unified logic for loading watchlist, VN30, VN100 symbols
- * 
- * @param {string} exchange - 'WATCHLIST', 'VN30', 'VN100', 'HOSE', or 'HNX'
- * @returns {Array} Array of symbol objects with metadata
- */
-function getSymbols(exchange) {
-    const watchlistSymbols = new Set();
-    const watchlistData = {};
 
-    // Load watchlist
-    try {
-        if (fs.existsSync(WATCH_LIST_FILE)) {
-            const rawData = JSON.parse(fs.readFileSync(WATCH_LIST_FILE, 'utf8'));
-
-            EXCHANGES.forEach(ex => {
-                const symbolsStr = rawData[ex] || '';
-                if (!symbolsStr || symbolsStr.trim() === '') return;
-
-                const symbols = symbolsStr.split(',').map(s => s.trim()).filter(s => s);
-                symbols.forEach(symbol => {
-                    watchlistSymbols.add(symbol);
-                    watchlistData[symbol] = ex;
-                });
-            });
-        }
-    } catch (error) {
-        console.error('⚠️ Error loading watchlist:', error.message);
-    }
-
-    // Helper to create symbol object
-    const createSymbol = (symbol, exchangeHint) => {
-        const isVN30 = vn30List.includes(symbol);
-        const isVN100 = vn100List.includes(symbol);
-        const inWatchlist = watchlistSymbols.has(symbol);
-        const symbolExchange = watchlistData[symbol] || exchangeHint || 'HOSE';
-
-        return {
-            symbol,
-            exchange: symbolExchange,
-            isVN30,
-            isVN100,
-            inWatchlist,
-            tradingViewUrl: getTradingViewUrl(symbolExchange, symbol)
-        };
-    };
-
-    // Return symbols based on exchange filter
-    if (exchange === 'VN30') {
-        return vn30List.map(s => createSymbol(s, 'HOSE'));
-    }
-
-    if (exchange === 'VN100') {
-        return vn100List.map(s => createSymbol(s, 'HOSE'));
-    }
-
-    if (exchange === 'WATCHLIST') {
-        return Array.from(watchlistSymbols).map(s => createSymbol(s));
-    }
-
-    if (exchange === 'HOSE' || exchange === 'HNX') {
-        return Array.from(watchlistSymbols)
-            .filter(s => watchlistData[s] === exchange)
-            .map(s => createSymbol(s));
-    }
-
-    return [];
-}
-
-// ==================== API ENDPOINTS ====================
 
 /**
  * GET /api/symbols
@@ -256,9 +186,75 @@ app.get('/api/analyze/:symbol', async (req, res) => {
     }
 });
 
+/**
+ * Get symbols list based on exchange filter
+ * Unified logic for loading watchlist, VN30, VN100 symbols
+ * 
+ * @param {string} exchange - 'WATCHLIST', 'VN30', 'VN100', 'HOSE', or 'HNX'
+ * @returns {Array} Array of symbol objects with metadata
+ */
+function getSymbols(exchange) {
+    const watchlistSymbols = new Set();
+    const watchlistData = {};
 
+    // Load watchlist
+    try {
+        if (fs.existsSync(WATCH_LIST_FILE)) {
+            const rawData = JSON.parse(fs.readFileSync(WATCH_LIST_FILE, 'utf8'));
 
-// ==================== HELPER FUNCTIONS ====================
+            EXCHANGES.forEach(ex => {
+                const symbolsStr = rawData[ex] || '';
+                if (!symbolsStr || symbolsStr.trim() === '') return;
+
+                const symbols = symbolsStr.split(',').map(s => s.trim()).filter(s => s);
+                symbols.forEach(symbol => {
+                    watchlistSymbols.add(symbol);
+                    watchlistData[symbol] = ex;
+                });
+            });
+        }
+    } catch (error) {
+        console.error('⚠️ Error loading watchlist:', error.message);
+    }
+
+    // Helper to create symbol object
+    const createSymbol = (symbol, exchangeHint) => {
+        const isVN30 = vn30List.includes(symbol);
+        const isVN100 = vn100List.includes(symbol);
+        const inWatchlist = watchlistSymbols.has(symbol);
+        const symbolExchange = watchlistData[symbol] || exchangeHint || 'HOSE';
+
+        return {
+            symbol,
+            exchange: symbolExchange,
+            isVN30,
+            isVN100,
+            inWatchlist,
+            tradingViewUrl: getTradingViewUrl(symbolExchange, symbol)
+        };
+    };
+
+    // Return symbols based on exchange filter
+    if (exchange === 'VN30') {
+        return vn30List.map(s => createSymbol(s, 'HOSE'));
+    }
+
+    if (exchange === 'VN100') {
+        return vn100List.map(s => createSymbol(s, 'HOSE'));
+    }
+
+    if (exchange === 'WATCHLIST') {
+        return Array.from(watchlistSymbols).map(s => createSymbol(s));
+    }
+
+    if (exchange === 'HOSE' || exchange === 'HNX') {
+        return Array.from(watchlistSymbols)
+            .filter(s => watchlistData[s] === exchange)
+            .map(s => createSymbol(s));
+    }
+
+    return [];
+}
 
 /**
  * Fetch stock price for a single symbol using Python vnstock script
