@@ -15,6 +15,9 @@ Usage:
     result = scorer.analyze()
 """
 
+# Apply patches for vnstock compatibility with pandas 3.x
+from . import vnstock_patch
+
 from .scorer import StockScorer
 from .utils import print_report, export_json
 

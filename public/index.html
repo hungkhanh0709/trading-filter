@@ -495,18 +495,9 @@
                     const sign = changePercent > 0 ? '+' : '';
                     const percent = Math.abs(changePercent) < 10 ? changePercent.toFixed(1) : Math.round(changePercent);
 
-                    // Add triangle icon
-                    let icon = '';
-                    if (changePercent > 0) {
-                        icon = '▲ ';
-                    } else if (changePercent < 0) {
-                        icon = '▼ ';
-                    } else {
-                        icon = '− ';
-                    }
-
-                    return `${icon}${priceFormatted} (${sign}${percent}%)`;
+                    return `${priceFormatted} (${sign}${percent}%)`;
                 },
+
                 getChangeClass(change) {
                     if (change === null || change === undefined) return 'change-neutral';
                     if (change > 0) return 'change-positive';
@@ -518,7 +509,7 @@
                     this.errorSnackbar = false;
 
                     try {
-                        const response = await fetch(`/api/stocks/matrix?exchange=${this.selectedExchange}`);
+                        const response = await fetch(`/api/symbols?exchange=${this.selectedExchange}`);
                         const result = await response.json();
 
                         if (result.success) {
@@ -550,34 +541,30 @@
 
                     this.loadingPrices = true;
                     const action = forceRefresh ? 'Refreshing' : 'Fetching';
-                    console.log(`💰 ${action} prices in background...`);
-                    // Deduplicate symbols before fetching
+                    console.log(`💰 ${action} prices...`);
+
+                    // Get unique symbols
                     const uniqueSymbols = [...new Set(this.matrixData.symbols.map(s => s.symbol))];
-                    const symbols = uniqueSymbols.join(',');
-                    const url = `/api/stocks/prices?symbols=${symbols}${forceRefresh ? '&force=1' : ''}`;
 
-                    try {
-                        const response = await fetch(url);
-                        const result = await response.json();
+                    // Fetch prices one by one
+                    for (const symbolObj of this.matrixData.symbols) {
+                        try {
+                            const url = `/api/price/${symbolObj.symbol}${forceRefresh ? '?force=1' : ''}`;
+                            const response = await fetch(url);
+                            const result = await response.json();
 
-                        if (result.success) {
-                            // Update prices in matrixData
-                            this.matrixData.symbols.forEach(symbol => {
-                                const priceInfo = result.data[symbol.symbol];
-                                if (priceInfo) {
-                                    symbol.price = priceInfo.price;
-                                    symbol.changePercent = priceInfo.changePercent;
-                                    symbol.priceError = priceInfo.error;
-                                }
-                            });
-                            console.log('✅ Prices updated successfully');
+                            if (result.success && result.data) {
+                                symbolObj.price = result.data.price;
+                                symbolObj.changePercent = result.data.changePercent;
+                                symbolObj.priceError = result.data.error;
+                            }
+                        } catch (error) {
+                            console.log(`⚠️ Could not load price for ${symbolObj.symbol}:`, error.message);
                         }
-                    } catch (error) {
-                        console.log('⚠️ Could not load prices:', error.message);
-                        // Don't show error to user - prices are optional
-                    } finally {
-                        this.loadingPrices = false;
                     }
+
+                    console.log('✅ Prices updated successfully');
+                    this.loadingPrices = false;
                 },
 
                 // Auto-analysis methods
@@ -614,7 +601,7 @@
                 },
 
                 async analyzeBatch(symbols) {
-                    // Sequential processing with 2s delay to avoid rate limiting
+                    // Sequential processing with 1s delay to avoid rate limiting
                     for (let i = 0; i < symbols.length; i++) {
                         const item = symbols[i];
 
@@ -626,9 +613,9 @@
                             this.analyzingProgress.completed++;
                         }
 
-                        // Add 2s delay between requests (except for the last one)
+                        // Add 1s delay between requests (except for the last one)
                         if (i < symbols.length - 1) {
-                            await new Promise(resolve => setTimeout(resolve, 2000));
+                            await new Promise(resolve => setTimeout(resolve, 1000));
                         }
                     }
                 },
@@ -669,15 +656,14 @@
 
                     try {
                         console.log(`💰 Fetching price for ${item.symbol}...`);
-                        const response = await fetch(`/api/stocks/prices?symbols=${item.symbol}&force=1`);
+                        const response = await fetch(`/api/price/${item.symbol}?force=1`);
                         const result = await response.json();
 
-                        if (result.success && result.data[item.symbol]) {
-                            const priceInfo = result.data[item.symbol];
-                            item.price = priceInfo.price;
-                            item.changePercent = priceInfo.changePercent;
-                            item.priceError = priceInfo.error;
-                            console.log(`✅ Price updated for ${item.symbol}: ${priceInfo.price}`);
+                        if (result.success && result.data) {
+                            item.price = result.data.price;
+                            item.changePercent = result.data.changePercent;
+                            item.priceError = result.data.error;
+                            console.log(`✅ Price updated for ${item.symbol}: ${result.data.price}`);
                         } else {
                             item.priceError = 'Failed to fetch price';
                             console.error(`❌ Price fetch failed for ${item.symbol}`);
@@ -690,95 +676,8 @@
                     }
                 },
 
-                // Color helpers - VN Stock Market Standard
-                getTierColor(tier) {
-                    const colors = {
-                        'S': 'purple',           // 🟣 Tăng trần - Xuất sắc
-                        'A': 'green',            // 🟢 Tăng - Rất tốt
-                        'B': 'yellow-darken-2',  // 🟡 Tham chiếu - Tốt
-                        'C': 'orange',           // 🟠 Nhẹ giảm - Trung bình
-                        'D': 'red',              // 🔴 Giảm - Kém
-                        'E': 'cyan',             // 🔵 Giảm nhiều - Rất kém
-                        'F': 'cyan-darken-2'     // 🔵 Giảm sàn - Thất bại
-                    };
-                    return colors[tier] || 'grey';
-                },
-
-                getStatusColor(status) {
-                    const colors = {
-                        'EXCELLENT': 'success',
-                        'GOOD': 'green',
-                        'ACCEPTABLE': 'blue',
-                        'WARNING': 'orange',
-                        'POOR': 'error',
-                        'NA': 'grey'
-                    };
-                    return colors[status] || 'grey';
-                },
-
-                getStatusIcon(status) {
-                    const icons = {
-                        'EXCELLENT': '🔥',
-                        'GOOD': '✅',
-                        'ACCEPTABLE': '➕',
-                        'WARNING': '⚠️',
-                        'POOR': '❌',
-                        'NA': '⚪'
-                    };
-                    return icons[status] || '-';
-                },
-
-                getScenarioIcon(scenario) {
-                    const icons = {
-                        'STRONG_UPTREND': '🚀',
-                        'BREAKOUT_SOON': '⚡',
-                        'UPTREND_CONSOLIDATION': '📈',
-                        'SIDEWAY': '↔️',
-                        'DOWNTREND_WARNING': '⚠️',
-                        'STRONG_DOWNTREND': '📉'
-                    };
-                    return icons[scenario] || '?';
-                },
-
-                getRecommendationColor(recommendation) {
-                    if (!recommendation) return '#999';
-                    if (recommendation.includes('MUA')) return '#4CAF50';
-                    if (recommendation.includes('BÁN')) return '#F44336';
-                    return '#FFA726';
-                },
-
-                getSignalColor(signal) {
-                    const colors = {
-                        'BUY': 'success',
-                        'HOLD': 'warning',
-                        'SELL': 'error'
-                    };
-                    return colors[signal] || 'grey';
-                },
-
-                getSignalIcon(signal) {
-                    const icons = {
-                        'STRONG_BUY': '🟢🟢',
-                        'BUY': '🟢',
-                        'HOLD': '⚪',
-                        'CAUTION': '🟡',
-                        'SELL': '🔴',
-                        'STRONG_SELL': '🔴🔴'
-                    };
-                    return icons[signal] || '⚪';
-                },
-
                 getColumn(columns, type) {
                     return columns.find(col => col.type === type);
-                },
-
-                getWarningColor(level) {
-                    const colors = {
-                        'HIGH': 'error',
-                        'MEDIUM': 'warning',
-                        'LOW': 'success'
-                    };
-                    return colors[level] || 'grey';
                 },
 
                 getPriceButtonTooltip(item) {
