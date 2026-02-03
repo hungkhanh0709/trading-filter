@@ -15,6 +15,8 @@ Only FACTUAL data:
 - Price Position (% from MA)
 """
 
+from vnstock_analyzer.core.constants import VN_COLORS, VN_ICONS
+
 
 def format_ma_signals(df, golden_cross, death_cross, convergence, expansion, momentum, tight_convergence):
     """
@@ -139,16 +141,16 @@ def format_ma_signals(df, golden_cross, death_cross, convergence, expansion, mom
     ma50_slope = momentum['ma50']['slope']
     alignment = momentum['alignment']
     
-    # Determine momentum icon color
+    # Determine momentum icon color - VN STOCK COLORS
     if alignment in ['BULLISH_ALIGNED', 'MOSTLY_BULLISH']:
-        momentum_color = 'success'
-        momentum_icon = 'mdi-speedometer'
+        momentum_color = VN_COLORS['UP']  # Green - Bullish
+        momentum_icon = VN_ICONS['TREND_UP']
     elif alignment in ['BEARISH_ALIGNED', 'MOSTLY_BEARISH']:
-        momentum_color = 'error'
-        momentum_icon = 'mdi-speedometer-slow'
+        momentum_color = VN_COLORS['DOWN']  # Red - Bearish
+        momentum_icon = VN_ICONS['TREND_DOWN']
     else:
-        momentum_color = 'grey'
-        momentum_icon = 'mdi-speedometer-medium'
+        momentum_color = VN_COLORS['NEUTRAL']  # Grey - Neutral
+        momentum_icon = VN_ICONS['NEUTRAL']
     
     signals.append({
         'type': 'momentum',

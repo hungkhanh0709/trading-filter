@@ -23,13 +23,6 @@ const PYTHON_VENV = path.join(__dirname, '.venv', 'bin', 'python');
 const FETCH_PRICES_SCRIPT = path.join(__dirname, 'scripts', 'fetch_prices.py');
 const ANALYZE_STOCK_SCRIPT = path.join(__dirname, 'scripts', 'analyze_stock.py');
 
-// Price cache - 60 minutes TTL
-let priceCache = {
-    data: {},
-    timestamp: 0,
-    ttl: 60 * 60 * 1000
-};
-
 // Analysis cache - 60 minutes TTL
 let analysisCache = {
     data: {},
@@ -94,33 +87,6 @@ app.get('/api/symbols', async (req, res) => {
         });
     } catch (error) {
         console.error('❌ Error in /api/symbols:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * GET /api/price/:symbol
- * Get current price for a single symbol
- * 
- * Query params:
- *   - force: "1" to clear cache and force refresh
- */
-app.get('/api/price/:symbol', async (req, res) => {
-    try {
-        const symbol = req.params.symbol.toUpperCase();
-        const forceRefresh = req.query.force === '1';
-
-        const priceData = await fetchStockPrice(symbol, forceRefresh);
-
-        res.json({
-            success: true,
-            data: priceData
-        });
-    } catch (error) {
-        console.error(`❌ Error fetching price for ${req.params.symbol}:`, error);
         res.status(500).json({
             success: false,
             error: error.message
@@ -254,88 +220,6 @@ function getSymbols(exchange) {
     }
 
     return [];
-}
-
-/**
- * Fetch stock price for a single symbol using Python vnstock script
- * 
- * @param {string} symbol - Stock symbol
- * @param {boolean} forceRefresh - Force clear cache
- * @returns {Promise<Object>} Price data: { price, changePercent }
- */
-async function fetchStockPrice(symbol, forceRefresh = false) {
-    // Clear cache if force refresh
-    if (forceRefresh) {
-        console.log(`🔄 Force refresh - clearing cache for ${symbol}`);
-        delete priceCache.data[symbol];
-    }
-
-    // Check cache
-    const now = Date.now();
-    if (!forceRefresh && now - priceCache.timestamp < priceCache.ttl && priceCache.data[symbol]) {
-        console.log(`📦 Using cached price for ${symbol}`);
-        return priceCache.data[symbol];
-    }
-
-    return new Promise((resolve, reject) => {
-        const args = [FETCH_PRICES_SCRIPT, symbol];
-        console.log(`🐍 Fetching price for ${symbol}...`);
-
-        const pythonProcess = spawn(PYTHON_VENV, args);
-
-        let stdout = '';
-        let stderr = '';
-
-        pythonProcess.stdout.on('data', (data) => {
-            stdout += data.toString();
-        });
-
-        pythonProcess.stderr.on('data', (data) => {
-            const line = data.toString().trim();
-            if (line) {
-                console.log(line); // Real-time progress logging
-            }
-            stderr += data.toString();
-        });
-
-        pythonProcess.on('close', (code) => {
-            if (code !== 0) {
-                console.error(`❌ Python script failed for ${symbol} with code:`, code);
-                console.error('stderr:', stderr);
-                return reject(new Error(`Python script failed with code ${code}`));
-            }
-
-            try {
-                // Parse JSON from stdout
-                const lines = stdout.split('\n');
-                const jsonLine = lines.find(line => line.trim().startsWith('{'));
-
-                if (!jsonLine) {
-                    console.error(`❌ No JSON output for ${symbol}`);
-                    console.error('stdout:', stdout);
-                    return resolve({ price: null, changePercent: null, error: 'No data' });
-                }
-
-                const results = JSON.parse(jsonLine);
-                const priceData = results[symbol] || { price: null, changePercent: null, error: 'Symbol not found' };
-
-                // Update cache
-                priceCache.data[symbol] = priceData;
-                priceCache.timestamp = now;
-
-                console.log(`✅ Fetched price for ${symbol}: ${priceData.price}`);
-                resolve(priceData);
-            } catch (error) {
-                console.error(`❌ Error parsing Python output for ${symbol}:`, error.message);
-                reject(error);
-            }
-        });
-
-        pythonProcess.on('error', (error) => {
-            console.error(`❌ Failed to start Python process for ${symbol}:`, error);
-            reject(error);
-        });
-    });
 }
 
 /**

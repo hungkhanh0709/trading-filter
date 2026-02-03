@@ -99,15 +99,28 @@ class StockScorer:
                               status=ma_analysis.get('status'), 
                               signal=tech_result.get('signal'))
             
+            # Extract price data from df_history (same data used in MA analysis)
+            price_data = {}
+            if df_history is not None and len(df_history) >= 2:
+                latest = df_history.iloc[-1]
+                prev = df_history.iloc[-2]
+                
+                price_data = {
+                    'price': round(latest['close'], 2),
+                    'open': round(latest['open'], 2),
+                    'high': round(latest['high'], 2),
+                    'low': round(latest['low'], 2),
+                    'changePercent': round((latest['close'] - prev['close']) / prev['close'] * 100, 2) if prev['close'] > 0 else 0
+                }
+            
             # Return flattened structure
             result = {
                 'symbol': self.symbol,
                 'analyzed_at': datetime.now().isoformat(),
-                
-                # Flatten MA analysis to top level
-                'status': ma_analysis.get('status', 'NA'),
-                'reasons': ma_analysis.get('reasons', []),
                 'perfect_order': ma_analysis.get('perfect_order', False),
+                
+                # Price data (from historical data used in MA analysis)
+                **price_data,
                 
                 # MA components (flattened)
                 'expansion': ma_analysis.get('expansion', {}),
@@ -117,14 +130,21 @@ class StockScorer:
                 'momentum': ma_analysis.get('momentum', {}),
                 'price_position': ma_analysis.get('price_position', {}),
                 
-                # UI columns (NEW)
-                'columns': ma_analysis.get('columns', [])
+                # Volume analysis (note: volume field contains analysis data, not raw number)
+                'volume_analysis': ma_analysis.get('volume', {}),
             }
             
             return result
             
         except Exception as e:
+            import traceback
+            import sys
+            print("=" * 80, file=sys.stderr)
+            print("FULL TRACEBACK:", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            print("=" * 80, file=sys.stderr)
             self.logger.error(f"Analysis failed: {e}")
+            self.logger.error(traceback.format_exc())
             return {
                 'error': f'Lỗi phân tích: {str(e)}',
                 'symbol': self.symbol,

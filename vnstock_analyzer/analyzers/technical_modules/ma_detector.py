@@ -5,16 +5,19 @@ Phát hiện các patterns trong Moving Averages:
 - Convergence (MA xoắn vào nhau)
 - Expansion (MA xoè ra - Perfect Order)
 - Golden Cross (MA cắt lên)
-- Sell Warning (Death Cross)
-- Tight Convergence (MA siêu xoắn - breakout sắp xảy ra)
+- Death Cross (MA cắt xuống)
 
 All functions are PURE - no side effects, easy to test.
 """
+
+from vnstock_analyzer.core.constants import VN_COLORS, VN_ICONS
 
 
 def detect_convergence(df, perfect_order=False):
     """
     Phát hiện MA convergence (các đường MA xoắn vào nhau) - Dấu hiệu tích luỹ
+    
+    Sử dụng Bandwidth % = (MAX - MIN) / MIN * 100
     
     Args:
         df: DataFrame with MA10, MA20, MA50 columns
@@ -23,78 +26,129 @@ def detect_convergence(df, perfect_order=False):
     Returns:
         dict: {
             'is_converging': bool,
-            'convergence_strength': float (0-100),
-            'avg_distance': float,
+            'convergence_pct': float (bandwidth %),
+            'level': str (SUPER_TIGHT/TIGHT/LOOSE),
+            'slope': str (UP/DOWN/NEUTRAL),
             'message': str
         }
     """
     if df is None or len(df) < 50:
         return {
             'is_converging': False,
-            'convergence_strength': 0,
-            'avg_distance': 0,
+            'convergence_pct': 0,
+            'level': 'NA',
+            'slope': 'NA',
             'message': 'Không đủ dữ liệu'
         }
     
     latest = df.iloc[-1]
     
-    # Tính khoảng cách % giữa các MA (KHÔNG dùng MA5 - quá nhạy)
+    # Tính Bandwidth % = (MAX - MIN) / MIN * 100
     ma10 = latest['MA10']
     ma20 = latest['MA20']
     ma50 = latest['MA50']
     
-    if ma50 == 0:
+    max_ma = max(ma10, ma20, ma50)
+    min_ma = min(ma10, ma20, ma50)
+    
+    if min_ma == 0:
         return {
             'is_converging': False,
-            'convergence_strength': 0,
-            'avg_distance': 0,
-            'message': 'MA50 = 0'
+            'convergence_pct': 0,
+            'level': 'NA',
+            'slope': 'NA',
+            'message': 'MA = 0'
         }
     
-    # Khoảng cách % so với MA50 (chỉ MA10 và MA20)
-    dist_10_50 = abs((ma10 - ma50) / ma50 * 100)
-    dist_20_50 = abs((ma20 - ma50) / ma50 * 100)
+    # Bandwidth % công thức mới
+    convergence_pct = (max_ma - min_ma) / min_ma * 100
     
-    # Khoảng cách trung bình (2 MA thay vì 3)
-    avg_distance = (dist_10_50 + dist_20_50) / 2
+    # Phân loại level
+    if convergence_pct < 1.5:
+        level = 'SUPER_TIGHT'
+    elif convergence_pct < 3.0:
+        level = 'TIGHT'
+    else:
+        level = 'LOOSE'
     
-    # Convergence strength: 100 khi các MA xoắn sát nhau (< 1%)
-    # 0 khi các MA cách xa (> 8%)
-    convergence_strength = max(0, min(100, (8 - avg_distance) / 8 * 100))
+    is_converging = convergence_pct < 3.0  # Tight hoặc Super Tight
     
-    is_converging = avg_distance < 4  # Các MA xoắn vào nhau khi cách nhau < 4%
+    # Tính slope (hướng) - dùng MA50 làm chuẩn
+    if len(df) >= 10:
+        ma50_10_days_ago = df.iloc[-10]['MA50']
+        if ma50_10_days_ago > 0:
+            slope_pct = (ma50 - ma50_10_days_ago) / ma50_10_days_ago * 100
+            if slope_pct > 0.5:
+                slope = 'UP'
+            elif slope_pct < -0.5:
+                slope = 'DOWN'
+            else:
+                slope = 'NEUTRAL'
+        else:
+            slope = 'NA'
+    else:
+        slope = 'NA'
     
     # MESSAGE: Phân biệt Perfect Order vs Non-Perfect Order
+    slope_emoji = '📈' if slope == 'UP' else ('📉' if slope == 'DOWN' else '➡️')
+    
+    # Icon & Color based on level - VIETNAMESE STOCK MARKET COLORS
+    icon_map = {
+        'SUPER_TIGHT': VN_ICONS['EXCELLENT'],      # Ngôi sao - Xuất sắc
+        'TIGHT': VN_ICONS['STRONG_UP'],           # Mũi tên lên đậm - Tốt
+        'LOOSE': VN_ICONS['NEUTRAL']              # Trung tính
+    }
+    color_map = {
+        'SUPER_TIGHT': VN_COLORS['CEILING'],      # Purple - Xuất sắc (sắp breakout)
+        'TIGHT': VN_COLORS['UP'],                 # Green - Tốt
+        'LOOSE': VN_COLORS['REFERENCE']           # Yellow - Trung tính
+    }
+    
     if perfect_order:
-        # Perfect Order + Convergence = Xu hướng TẮM TỐC (trend acceleration)
-        if avg_distance < 1.5:
-            message = f"🚀 MA xoắn chặt (TB: {avg_distance:.1f}%) - Xu hướng có thể tăng tốc mạnh!"
-        elif avg_distance < 4:
-            message = f"📈 MA gần nhau (TB: {avg_distance:.1f}%) - Xu hướng có thể tăng tốc"
+        # Perfect Order + Convergence = Xu hướng TĂNG TỐC (trend acceleration)
+        if level == 'SUPER_TIGHT':
+            message = f"🚀 {slope_emoji} Convergence {convergence_pct:.1f}% (SUPER TIGHT, {slope}) - Xu hướng có thể tăng tốc mạnh!"
+        elif level == 'TIGHT':
+            message = f"📈 {slope_emoji} Convergence {convergence_pct:.1f}% (TIGHT, {slope}) - Xu hướng có thể tăng tốc"
         else:
-            message = f"➕ MA gần nhau (TB: {avg_distance:.1f}%)"
+            message = f"➕ {slope_emoji} Convergence {convergence_pct:.1f}% (LOOSE, {slope})"
     else:
         # Không Perfect Order + Convergence = BREAKOUT (trend change)
-        if avg_distance < 1.5:
-            message = f"⚡ MA siêu xoắn (TB: {avg_distance:.1f}%) - Breakout sắp xảy ra!"
-        elif avg_distance < 4:
-            message = f"🔄 MA đang tích luỹ (TB: {avg_distance:.1f}%) - Theo dõi breakout"
-        elif avg_distance < 8:
-            message = f"➕ MA gần nhau (TB: {avg_distance:.1f}%)"
+        if level == 'SUPER_TIGHT':
+            message = f"⚡ {slope_emoji} Convergence {convergence_pct:.1f}% (SUPER TIGHT, {slope}) - Breakout sắp xảy ra!"
+        elif level == 'TIGHT':
+            message = f"🔄 {slope_emoji} Convergence {convergence_pct:.1f}% (TIGHT, {slope}) - Theo dõi breakout"
         else:
-            message = f"↔️ MA cách xa (TB: {avg_distance:.1f}%)"
+            message = f"↔️ {slope_emoji} Convergence {convergence_pct:.1f}% (LOOSE, {slope})"
     
     return {
         'is_converging': is_converging,
-        'convergence_strength': convergence_strength,
-        'avg_distance': avg_distance,
-        'message': message
+        'convergence_pct': convergence_pct,
+        'level': level,
+        'slope': slope,
+        'message': message,
+        # UI metadata
+        'icon': icon_map.get(level, 'mdi-circle-outline'),
+        'color': color_map.get(level, 'grey'),
+        'label': f'{convergence_pct:.1f}% {slope_emoji}',
+        'tooltip': (
+            f"<strong>⚡ MA Convergence</strong><br>"
+            f"Convergence: {convergence_pct:.2f}%<br>"
+            f"Level: {level}<br>"
+            f"Slope: {slope} {slope_emoji}<br>"
+            f"<em>{message}</em>"
+        )
     }
 
 
 def detect_expansion(df):
     """
-    Phát hiện MA expansion (các đường MA xoè ra) - Xác nhận uptrend mạnh
+    Phát hiện MA expansion (độ xoè của MA) - KHÔNG phụ thuộc vào Perfect Order
+    
+    Expansion đo khoảng cách giữa các MA và slope của MA50:
+    - EXPANDING: MAs đang xoè ra (distances lớn, slope dương)
+    - NEUTRAL: MAs ổn định
+    - CONTRACTING: MAs đang co lại (distances nhỏ, slope âm hoặc gần 0)
     
     Args:
         df: DataFrame with MA10, MA20, MA50 columns
@@ -102,83 +156,126 @@ def detect_expansion(df):
     Returns:
         dict: {
             'is_expanding': bool,
-            'expansion_quality': str (PERFECT/GOOD/WEAK),
+            'quality': str (STRONG/MODERATE/WEAK/NEUTRAL/CONTRACTING),
             'ma50_slope': float,
-            'distances': dict,
-            'message': str
+            'ma10_ma50_distance': float,
+            'ma20_ma50_distance': float,
+            'message': str,
+            'icon': str,
+            'color': str,
+            'label': str,
+            'tooltip': str
         }
     """
     if df is None or len(df) < 50:
         return {
             'is_expanding': False,
-            'expansion_quality': 'WEAK',
+            'quality': 'NEUTRAL',
             'ma50_slope': 0,
-            'distances': {},
-            'message': 'Không đủ dữ liệu'
+            'ma10_ma50_distance': 0,
+            'ma20_ma50_distance': 0,
+            'message': 'Không đủ dữ liệu',
+            'icon': 'mdi-alert-circle',
+            'color': 'grey',
+            'label': 'No Data',
+            'tooltip': '<strong>📊 MA Expansion</strong><br>Không đủ dữ liệu'
         }
     
     latest = df.iloc[-1]
-    
-    # Kiểm tra Perfect Order (MA10 > MA20 > MA50, KHÔNG dùng MA5)
-    perfect_order = (latest['MA10'] > latest['MA20'] > latest['MA50'])
-    
-    if not perfect_order:
-        return {
-            'is_expanding': False,
-            'expansion_quality': 'WEAK',
-            'ma50_slope': 0,
-            'distances': {},
-            'message': '❌ Không có Perfect Order'
-        }
-    
-    # Tính khoảng cách giữa các MA (% so với MA50, KHÔNG dùng MA5)
     ma50 = latest['MA50']
+    
     if ma50 == 0:
         return {
             'is_expanding': False,
-            'expansion_quality': 'WEAK',
+            'quality': 'NEUTRAL',
             'ma50_slope': 0,
-            'distances': {},
-            'message': 'MA50 = 0'
+            'ma10_ma50_distance': 0,
+            'ma20_ma50_distance': 0,
+            'message': 'MA50 = 0',
+            'icon': 'mdi-alert-circle',
+            'color': 'grey',
+            'label': 'Error',
+            'tooltip': '<strong>📊 MA Expansion</strong><br>MA50 = 0'
         }
     
+    # Tính khoảng cách giữa các MA (% so với MA50)
     dist_10_50 = (latest['MA10'] - ma50) / ma50 * 100
     dist_20_50 = (latest['MA20'] - ma50) / ma50 * 100
     
-    distances = {
-        'ma10_ma50': dist_10_50,
-        'ma20_ma50': dist_20_50
-    }
-    
-    # Tính độ nghiêng (slope) của MA50 trong 10 ngày gần nhất
+    # Tính slope của MA50 (10 ngày gần nhất)
     if len(df) >= 10:
         ma50_10_days_ago = df.iloc[-10]['MA50']
         ma50_slope = ((ma50 - ma50_10_days_ago) / ma50_10_days_ago * 100) if ma50_10_days_ago > 0 else 0
     else:
         ma50_slope = 0
     
-    # Đánh giá expansion quality (dựa vào MA10 thay vì MA5)
+    # Đánh giá expansion quality (KHÔNG phụ thuộc Perfect Order)
+    # Expansion = khoảng cách + slope
+    
+    # STRONG EXPANSION: Distances lớn + slope dương mạnh
     if dist_10_50 > 6 and dist_20_50 > 3 and ma50_slope > 2:
-        expansion_quality = 'PERFECT'
-        message = f"🚀 Perfect Expansion! MA xoè rộng (MA10 +{dist_10_50:.1f}%, MA20 +{dist_20_50:.1f}%) | MA50 slope +{ma50_slope:.1f}%"
-    elif dist_10_50 > 4 and dist_20_50 > 2 and ma50_slope > 1:
-        expansion_quality = 'GOOD'
-        message = f"✅ MA đang xoè ra (MA10 +{dist_10_50:.1f}%, MA20 +{dist_20_50:.1f}%) | MA50 slope +{ma50_slope:.1f}%"
-    elif dist_10_50 > 2:
-        expansion_quality = 'WEAK'
-        message = f"➕ MA xoè yếu (MA10 +{dist_10_50:.1f}%, MA20 +{dist_20_50:.1f}%) | MA50 slope +{ma50_slope:.1f}%"
+        quality = 'STRONG'
+        message = f"🚀 MA xoè mạnh (MA10 {dist_10_50:+.1f}%, MA20 {dist_20_50:+.1f}%, Slope {ma50_slope:+.1f}%)"
+        icon = VN_ICONS['EXPAND']
+        color = VN_COLORS['CEILING']  # Purple - Xuất sắc
+        label = 'Xoè MẠNH'
+        is_expanding = True
+    
+    # MODERATE EXPANSION: Distances trung bình + slope dương
+    elif dist_10_50 > 3 and dist_20_50 > 1.5 and ma50_slope > 0.5:
+        quality = 'MODERATE'
+        message = f"✅ MA đang xoè (MA10 {dist_10_50:+.1f}%, MA20 {dist_20_50:+.1f}%, Slope {ma50_slope:+.1f}%)"
+        icon = VN_ICONS['STRONG_UP']
+        color = VN_COLORS['UP']  # Green - Tốt
+        label = 'Xoè VỪA'
+        is_expanding = True
+    
+    # WEAK EXPANSION: Distances nhỏ hoặc slope yếu
+    elif dist_10_50 > 1 and ma50_slope > 0:
+        quality = 'WEAK'
+        message = f"➕ MA xoè yếu (MA10 {dist_10_50:+.1f}%, MA20 {dist_20_50:+.1f}%, Slope {ma50_slope:+.1f}%)"
+        icon = VN_ICONS['UP']
+        color = VN_COLORS['REFERENCE']  # Yellow - Trung tính
+        label = 'Xoè YẾU'
+        is_expanding = False
+    
+    # CONTRACTING: MAs đang co lại (distances âm hoặc slope âm)
+    elif dist_10_50 < -1 or ma50_slope < -0.5:
+        quality = 'CONTRACTING'
+        message = f"📉 MA đang co lại (MA10 {dist_10_50:+.1f}%, MA20 {dist_20_50:+.1f}%, Slope {ma50_slope:+.1f}%)"
+        icon = VN_ICONS['CONTRACT']
+        color = VN_COLORS['DOWN']  # Red - Xấu
+        label = 'Đang CO'
+        is_expanding = False
+    
+    # NEUTRAL: Không rõ xu hướng
     else:
-        expansion_quality = 'WEAK'
-        message = f"⚠️ Perfect Order nhưng MA chưa xoè rõ (MA10 +{dist_10_50:.1f}%)"
+        quality = 'NEUTRAL'
+        message = f"➡️ MA trung tính (MA10 {dist_10_50:+.1f}%, MA20 {dist_20_50:+.1f}%, Slope {ma50_slope:+.1f}%)"
+        icon = VN_ICONS['NEUTRAL']
+        color = VN_COLORS['REFERENCE']  # Yellow - Trung tính
+        label = 'Trung tính'
+        is_expanding = False
     
     return {
-        'is_expanding': expansion_quality in ['PERFECT', 'GOOD'],
-        'expansion_quality': expansion_quality,
-        'ma50_slope': ma50_slope,
-        'ma10_ma50_distance': dist_10_50,
-        'ma20_ma50_distance': dist_20_50,
-        'distances': distances,
-        'message': message
+        'is_expanding': is_expanding,
+        'quality': quality,
+        'ma50_slope': round(ma50_slope, 2),
+        'ma10_ma50_distance': round(dist_10_50, 2),
+        'ma20_ma50_distance': round(dist_20_50, 2),
+        'message': message,
+        # UI metadata
+        'icon': icon,
+        'color': color,
+        'label': label,
+        'tooltip': (
+            f"<strong>📊 MA Expansion</strong><br>"
+            f"Quality: {quality}<br>"
+            f"MA10 vs MA50: {dist_10_50:+.1f}%<br>"
+            f"MA20 vs MA50: {dist_20_50:+.1f}%<br>"
+            f"MA50 slope: {ma50_slope:+.2f}%/ngày<br>"
+            f"<em>{message}</em>"
+        )
     }
 
 
@@ -235,13 +332,27 @@ def detect_golden_cross(df):
     # Tạo message
     if not crosses:
         message = "Không có Golden Cross gần đây"
+        tooltip = "<strong>⭐ Golden Cross</strong><br>Không có Golden Cross trong 2 ngày gần đây"
+        label = "No GC"
     else:
         message = f"{best_cross['icon']} {best_cross['label']} vừa xảy ra!"
+        tooltip = (
+            f"<strong>⭐ {best_cross['label']}</strong><br>"
+            f"Loại: {best_cross['type']}<br>"
+            f"Độ uy tín: {best_cross['score']}/10<br>"
+        )
+        label = f"{best_cross['icon']} {best_cross['label']}"
     
     return {
         'crosses': crosses,
         'best_cross': best_cross,
-        'message': message
+        'has_cross': len(crosses) > 0,
+        'message': message,
+        # UI metadata
+        'icon': 'mdi-star-circle',
+        'color': 'amber' if best_cross else 'grey',
+        'label': label,
+        'tooltip': tooltip
     }
 
 
@@ -314,88 +425,35 @@ def detect_death_cross(df):
     
     has_death_cross = len(crosses) > 0
     
+    # UI metadata
+    if has_death_cross:
+        dc = strongest_cross
+        severity = dc.get('severity', 'MEDIUM')
+        tooltip = (
+            f"<strong>⚠️ Death Cross</strong><br>"
+            f"Loại: {dc.get('type')}<br>"
+            f"Mức độ: {severity}<br>"
+        )
+        label = f"Death Cross ({severity})"
+        # Death Cross severity colors
+        if severity == 'CRITICAL':
+            color = VN_COLORS['FLOOR']  # Cyan - Rất xấu
+        else:
+            color = VN_COLORS['DOWN']   # Red - Xấu
+    else:
+        tooltip = "<strong>⚠️ Death Cross</strong><br>Không có Death Cross gần đây"
+        label = "No DC"
+        color = VN_COLORS['NEUTRAL']  # Grey
+    
     return {
         'has_death_cross': has_death_cross,
         'crosses': crosses,
         'strongest_cross': strongest_cross,
-        'price_below_ma': price_below_ma
+        'price_below_ma': price_below_ma,
+        # UI metadata
+        'icon': 'mdi-alert-circle',
+        'color': color,
+        'label': label,
+        'tooltip': tooltip
     }
 
-
-def detect_tight_convergence(df, convergence, death_cross):
-    """
-    Phát hiện MA SIÊU XOẮN - Dấu hiệu breakout sắp xảy ra
-    
-    Đây là insight quan trọng: khi MA xoắn rất sát nhau, chỉ cần 1 phiên
-    breakout là có thể chuyển sang Perfect Order hoặc tăng mạnh.
-    
-    Điều kiện:
-    - Convergence strength > 75% (MA siêu xoắn)
-    - Giá > MA50 (đang trong xu hướng tăng)
-    - Perfect Order = True HOẶC gần đạt (MA10 > MA20 gần bằng MA50)
-    - KHÔNG có death cross CRITICAL
-    
-    Args:
-        df: DataFrame with close, MA10, MA20, MA50
-        convergence: Result from detect_convergence()
-        death_cross: Result from detect_death_cross()
-        
-    Returns:
-        dict: {
-            'is_tight': bool,
-            'strength': float,
-            'avg_distance': float,
-            'message': str
-        }
-    """
-    if df is None or len(df) < 50:
-        return {
-            'is_tight': False,
-            'strength': 0,
-            'message': ''
-        }
-    
-    latest = df.iloc[-1]
-    price = latest['close']
-    ma10 = latest['MA10']
-    ma20 = latest['MA20']
-    ma50 = latest['MA50']
-    
-    # Điều kiện 1: Convergence strength > 75% (siêu xoắn)
-    strength = convergence.get('convergence_strength', 0)
-    if strength < 75:
-        return {'is_tight': False, 'strength': strength, 'message': ''}
-    
-    # Điều kiện 2: Giá > MA50 (trong uptrend)
-    if price <= ma50:
-        return {'is_tight': False, 'strength': strength, 'message': ''}
-    
-    # Điều kiện 3: Perfect Order HOẶC gần đạt HOẶC convergence CỰC mạnh
-    perfect_order = (ma10 > ma20 > ma50)
-    near_perfect_order = (ma10 > ma20 and ma20 >= ma50 * 0.998)
-    ultra_tight = (strength >= 95)
-    
-    if not (perfect_order or near_perfect_order or ultra_tight):
-        return {'is_tight': False, 'strength': strength, 'message': ''}
-    
-    # Điều kiện 4: KHÔNG có death cross CRITICAL
-    has_critical_death_cross = (death_cross.get('has_death_cross') and 
-                                death_cross.get('strongest_cross', {}).get('severity') == 'CRITICAL')
-    if has_critical_death_cross:
-        return {'is_tight': False, 'strength': strength, 'message': ''}
-    
-    # Passed all conditions!
-    avg_dist = convergence.get('avg_distance', 0)
-    
-    # Message - FACTUAL only
-    if strength >= 90:
-        message = f"⚡⚡ MA siêu siêu xoắn: {strength:.0f}%, khoảng cách {avg_dist:.2f}%"
-    else:
-        message = f"⚡ MA siêu xoắn: {strength:.0f}%, khoảng cách {avg_dist:.1f}%"
-    
-    return {
-        'is_tight': True,
-        'strength': strength,
-        'avg_distance': avg_dist,
-        'message': message
-    }
