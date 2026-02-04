@@ -283,15 +283,6 @@
                                 <span v-else style="color: #999;">-</span>
                             </template>
 
-                            <!-- Perfect Order Column (removed - now in Order & Crosses) -->
-                            <!-- <template v-slot:item.perfect_order="{ item }">
-                                <v-icon v-if="item.analysis?.perfect_order" icon="mdi-check-circle"
-                                    color="success"></v-icon>
-                                <v-icon v-else-if="item.analysis" icon="mdi-close-circle" color="grey"
-                                    size="small"></v-icon>
-                                <span v-else style="color: #999;">-</span>
-                            </template> -->
-
                             <!-- Expansion Column -->
                             <template v-slot:item.expansion="{ item }">
                                 <v-tooltip v-if="item.analysis?.expansion" location="top">
@@ -385,7 +376,8 @@
                 };
             },
             computed: {
-                // Sorted symbols with convergence priority (smallest convergence % first)
+                // Sorted symbols with breakout priority (highest score first)
+                // Ưu tiên mã có khả năng breakout cao: Convergence chặt + Perfect Order + Volume thấp
                 sortedSymbols() {
                     if (!this.matrixData || !this.matrixData.symbols) {
                         return [];
@@ -393,18 +385,61 @@
 
                     const symbols = [...this.matrixData.symbols];
 
-                    // Sort by convergence_pct (smallest first = tightest convergence)
-                    // Symbols without analysis will be at the end
+                    // Calculate priority score for each symbol
+                    const calculatePriority = (symbol) => {
+                        const analysis = symbol.analysis;
+                        if (!analysis) return -999999; // No analysis = lowest priority
+
+                        let score = 0;
+
+                        // 1. CONVERGENCE (càng nhỏ càng cao điểm - MA hội tụ chặt)
+                        const convergence = analysis.convergence?.convergence_pct;
+                        if (convergence !== null && convergence !== undefined) {
+                            // Invert score: smaller convergence = higher priority
+                            // Max 100 points for convergence 0%, decreasing to 0 at 20%
+                            score += Math.max(0, 100 - convergence * 5);
+                        }
+
+                        // 2. PERFECT ORDER (+50 points)
+                        // if (analysis.perfect_order === true) {
+                        //     score += 50;
+                        // }
+
+                        // 3. PRICE > MA50 (+30 points)
+                        // const priceVsMA50 = analysis.price_position?.vs_ma50;
+                        // if (priceVsMA50 !== null && priceVsMA50 !== undefined && priceVsMA50 > 0) {
+                        //     score += 30;
+                        // }
+
+                        // // 4. VOLUME DECREASING (+20 points - tích lũy yên lặng)
+                        // const volumeTrend = analysis.volume_analysis?.trend;
+                        // const isVolumeDecreasing = analysis.volume_analysis?.is_decreasing;
+                        // if (volumeTrend === 'DECREASING' || isVolumeDecreasing === true) {
+                        //     score += 20;
+                        // }
+
+                        // 5. GOLDEN CROSS recent (+15 points)
+                        // if (analysis.golden_cross?.has_cross === true) {
+                        //     score += 15;
+                        // }
+
+                        // 6. EXPANSION chưa mạnh (+10 points - chưa breakout rõ)
+                        // const expansionQuality = analysis.expansion?.quality;
+                        // if (expansionQuality === 'WEAK' || expansionQuality === 'MODERATE') {
+                        //     score += 10;
+                        // }
+
+                        // 7. DEATH CROSS penalty (-100 points)
+                        // if (analysis.death_cross?.has_cross === true) {
+                        //     score -= 100;
+                        // }
+
+                        return score;
+                    };
+
+                    // Sort by priority score (highest first)
                     symbols.sort((a, b) => {
-                        const aConvergence = a.analysis?.convergence?.convergence_pct;
-                        const bConvergence = b.analysis?.convergence?.convergence_pct;
-
-                        // Handle undefined/null - put them at the end
-                        if (aConvergence === undefined || aConvergence === null) return 1;
-                        if (bConvergence === undefined || bConvergence === null) return -1;
-
-                        // Ascending order (smallest convergence_pct first = tightest)
-                        return aConvergence - bConvergence;
+                        return calculatePriority(b) - calculatePriority(a);
                     });
 
                     return symbols;
