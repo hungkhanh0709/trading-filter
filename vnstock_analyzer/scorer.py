@@ -105,12 +105,15 @@ class StockScorer:
                 latest = df_history.iloc[-1]
                 prev = df_history.iloc[-2]
                 
+                # Group price information into single object
                 price_data = {
-                    'price': round(latest['close'], 2),
-                    'open': round(latest['open'], 2),
-                    'high': round(latest['high'], 2),
-                    'low': round(latest['low'], 2),
-                    'changePercent': round((latest['close'] - prev['close']) / prev['close'] * 100, 2) if prev['close'] > 0 else 0
+                    'price': {
+                        'current': round(latest['close'], 2),
+                        'open': round(latest['open'], 2),
+                        'high': round(latest['high'], 2),
+                        'low': round(latest['low'], 2),
+                        'changePercent': round((latest['close'] - prev['close']) / prev['close'] * 100, 2) if prev['close'] > 0 else 0
+                    }
                 }
             
             # Return flattened structure
@@ -119,7 +122,7 @@ class StockScorer:
                 'analyzed_at': datetime.now().isoformat(),
                 'perfect_order': ma_analysis.get('perfect_order', False),
                 
-                # Price data (from historical data used in MA analysis)
+                # Price data grouped as object
                 **price_data,
                 
                 # MA components (flattened)

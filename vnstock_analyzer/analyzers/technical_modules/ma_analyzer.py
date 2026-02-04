@@ -319,7 +319,24 @@ class MAAnalyzer:
     
     def _get_price_position_with_ui(self):
         """
-        Get price position vs MA with UI metadata
+        Get price position vs MA with UI metadata + Wick Rejection detection
+        
+        Wick Rejection (Enhanced):
+        Bullish MA:
+          - Low ≤ MA (test support)
+          - Close > MA (rejection successful)
+          - (Close-Low)/(High-Low) ≥ 60% (lower wick dominant)
+          - Lower shadow ≥ 1.5× body
+          - MA slope not steep down
+          - Volume low-medium (not spike)
+        
+        Bearish MA:
+          - High ≥ MA (test resistance)
+          - Close < MA (rejection down)
+          - Upper wick dominant
+          - Upper shadow ≥ 1.5× body
+          - MA slope not steep up
+          - Volume low-medium
         
         Returns:
             dict: {
@@ -329,11 +346,15 @@ class MAAnalyzer:
                 'icon': str,
                 'color': str,
                 'label': str,
-                'tooltip': str
+                'tooltip': str (bao gồm thông tin wick rejection)
             }
         """
         latest = self.df.iloc[-1]
         price = latest['close']
+        open_price = latest['open']
+        low = latest['low']
+        high = latest['high']
+        volume = latest['volume']
         ma50 = latest['MA50']
         ma20 = latest['MA20']
         ma10 = latest['MA10']
@@ -344,6 +365,91 @@ class MAAnalyzer:
             dist_to_ma10 = (price - ma10) / ma10 * 100 if ma10 > 0 else 0
         else:
             dist_to_ma50 = dist_to_ma20 = dist_to_ma10 = 0
+        
+        # Calculate candle components
+        body = abs(price - open_price)
+        lower_shadow = min(price, open_price) - low
+        upper_shadow = high - max(price, open_price)
+        total_range = high - low
+        
+        # Volume check (not abnormal spike)
+        if len(self.df) >= 20:
+            avg_volume = self.df.iloc[-20:]['volume'].mean()
+            volume_ratio = volume / avg_volume if avg_volume > 0 else 1
+            is_volume_ok = volume_ratio <= 2.5  # Not more than 2.5x average
+        else:
+            is_volume_ok = True
+        
+        # MA slope check
+        def get_ma_slope(ma_col, periods=5):
+            """Calculate MA slope over last N periods"""
+            if len(self.df) < periods + 1:
+                return 0
+            recent_ma = self.df.iloc[-(periods+1):][ma_col].values
+            return (recent_ma[-1] - recent_ma[0]) / recent_ma[0] * 100
+        
+        ma50_slope = get_ma_slope('MA50', 5)
+        ma20_slope = get_ma_slope('MA20', 5)
+        
+        # Detect Wick Rejection with enhanced criteria
+        wick_signals = []
+        
+        # MA50 Wick Rejection (quan trọng nhất)
+        if ma50 > 0 and total_range > 0:
+            # Bullish: Low test MA50, close above
+            if low <= ma50 and price > ma50:
+                wick_ratio = (price - low) / total_range if total_range > 0 else 0
+                shadow_body_ratio = lower_shadow / body if body > 0 else 999
+                
+                # Check all criteria
+                if (wick_ratio >= 0.6 and 
+                    shadow_body_ratio >= 1.5 and 
+                    ma50_slope >= -1.5 and  # MA not steep down
+                    is_volume_ok):
+                    
+                    wick_pct = (ma50 - low) / ma50 * 100
+                    wick_signals.append(f"✅ Bullish MA50: Test -{wick_pct:.1f}%; Reject({wick_ratio*100:.0f}%)")
+            
+            # Bearish: High test MA50, close below
+            elif high >= ma50 and price < ma50:
+                wick_ratio = (high - price) / total_range if total_range > 0 else 0
+                shadow_body_ratio = upper_shadow / body if body > 0 else 999
+                
+                if (wick_ratio >= 0.6 and 
+                    shadow_body_ratio >= 1.5 and 
+                    ma50_slope <= 1.5 and  # MA not steep up
+                    is_volume_ok):
+                    
+                    wick_pct = (high - ma50) / ma50 * 100
+                    wick_signals.append(f"⚠️ Bearish MA50: Test +{wick_pct:.1f}%; Reject({wick_ratio*100:.0f}%)")
+        
+        # MA20 Wick Rejection
+        if ma20 > 0 and total_range > 0:
+            # Bullish: Low test MA20, close above
+            if low <= ma20 and price > ma20:
+                wick_ratio = (price - low) / total_range if total_range > 0 else 0
+                shadow_body_ratio = lower_shadow / body if body > 0 else 999
+                
+                if (wick_ratio >= 0.6 and 
+                    shadow_body_ratio >= 1.5 and 
+                    ma20_slope >= -1.5 and 
+                    is_volume_ok):
+                    
+                    wick_pct = (ma20 - low) / ma20 * 100
+                    wick_signals.append(f"✅ Bullish MA20: Test -{wick_pct:.1f}%; Reject({wick_ratio*100:.0f}%)")
+            
+            # Bearish: High test MA20, close below
+            elif high >= ma20 and price < ma20:
+                wick_ratio = (high - price) / total_range if total_range > 0 else 0
+                shadow_body_ratio = upper_shadow / body if body > 0 else 999
+                
+                if (wick_ratio >= 0.6 and 
+                    shadow_body_ratio >= 1.5 and 
+                    ma20_slope <= 1.5 and 
+                    is_volume_ok):
+                    
+                    wick_pct = (high - ma20) / ma20 * 100
+                    wick_signals.append(f"⚠️ Bearish MA20: Test +{wick_pct:.1f}%; Reject({wick_ratio*100:.0f}%)")
         
         # Determine icon & color - VN STOCK COLORS
         if dist_to_ma50 > 0:
@@ -356,13 +462,20 @@ class MAAnalyzer:
             icon = VN_ICONS['DOWN']
             color = VN_COLORS['DOWN']  # Red - Giá dưới MA50 (xấu)
         
-        label = f"Giá vs MA50: {dist_to_ma50:+.1f}%"
+        label = f"vs MA50: {dist_to_ma50:+.1f}%"
+        
+        # Build tooltip with wick signals
         tooltip = (
             f"<strong>📍 Vị trí giá</strong><br>"
             f"vs MA10: {dist_to_ma10:+.1f}%<br>"
             f"vs MA20: {dist_to_ma20:+.1f}%<br>"
             f"vs MA50: {dist_to_ma50:+.1f}%<br>"
         )
+        
+        # Add wick rejection signals
+        if wick_signals:
+            tooltip += "<br><strong>🕯️ Wick Rejection:</strong><br>"
+            tooltip += "<br>".join(wick_signals)
         
         return {
             'vs_ma50': dist_to_ma50,

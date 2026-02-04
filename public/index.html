@@ -188,8 +188,9 @@
 
                             <!-- Price Change Column -->
                             <template v-slot:item.price="{ item }">
-                                <div class="price-cell" :class="getChangeClass(item.analysis?.changePercent)">
-                                    {{ formatPriceChange(item.analysis?.price, item.analysis?.changePercent) }}
+                                <div class="price-cell" :class="getChangeClass(item.analysis?.price?.changePercent)">
+                                    {{ formatPriceChange(item.analysis?.price?.current,
+                                    item.analysis?.price?.changePercent) }}
                                 </div>
                             </template>
 
@@ -416,7 +417,7 @@
                     let up = 0, down = 0, neutral = 0;
 
                     this.matrixData.symbols.forEach(symbol => {
-                        const change = symbol.analysis?.changePercent;
+                        const change = symbol.analysis?.price?.changePercent;
                         if (change !== null && change !== undefined) {
                             if (change > 0) {
                                 up++;
