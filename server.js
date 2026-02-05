@@ -23,10 +23,10 @@ const PYTHON_VENV = path.join(__dirname, '.venv', 'bin', 'python');
 const FETCH_PRICES_SCRIPT = path.join(__dirname, 'scripts', 'fetch_prices.py');
 const ANALYZE_STOCK_SCRIPT = path.join(__dirname, 'scripts', 'analyze_stock.py');
 
-// Analysis cache - 60 minutes TTL
+// Analysis cache - 180 minutes TTL
 let analysisCache = {
     data: {},
-    ttl: 60 * 60 * 1000
+    ttl: 180 * 60 * 1000
 };
 
 // Middleware

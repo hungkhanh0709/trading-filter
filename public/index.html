@@ -126,7 +126,6 @@
                 <v-spacer></v-spacer>
                 <!-- Analysis Progress -->
                 <div v-if="autoAnalyzing" class="mr-4" style="display: flex; align-items: center; gap: 8px;">
-                    <v-progress-circular indeterminate size="20" width="2" color="white"></v-progress-circular>
                     <span style="font-size: 0.9em;">
                         Phân tích: {{ analyzingProgress.completed }}/{{ analyzingProgress.total }}
                     </span>
@@ -148,7 +147,8 @@
                         </v-tabs>
 
                         <v-data-table :headers="matrixHeaders" :items="sortedSymbols" :items-per-page="100"
-                            class="elevation-1" density="compact" :search="search">
+                            v-model:sort-by="sortBy" :must-sort="false" :multi-sort="false" class="elevation-1"
+                            density="compact" :search="search">
                             <template v-slot:top>
                                 <v-text-field v-model="search" label="Tìm kiếm mã" prepend-inner-icon="mdi-magnify"
                                     variant="outlined" hide-details single-line class="ma-4"
@@ -372,12 +372,13 @@
                     analyzingQueue: [],
                     analyzingProgress: { completed: 0, total: 0 },
                     maxConcurrent: 5,
-                    autoAnalyzing: false
+                    autoAnalyzing: false,
+                    // Table sorting state
+                    sortBy: [] // Vuetify v-model:sort-by binding
                 };
             },
             computed: {
-                // Sorted symbols with breakout priority (highest score first)
-                // Ưu tiên mã có khả năng breakout cao: Convergence chặt + Perfect Order + Volume thấp
+                // Sorted symbols
                 sortedSymbols() {
                     if (!this.matrixData || !this.matrixData.symbols) {
                         return [];
@@ -385,64 +386,14 @@
 
                     const symbols = [...this.matrixData.symbols];
 
-                    // Calculate priority score for each symbol
-                    const calculatePriority = (symbol) => {
-                        const analysis = symbol.analysis;
-                        if (!analysis) return -999999; // No analysis = lowest priority
+                    // Default sort
+                    if (!this.sortBy || this.sortBy.length === 0) {
+                        return this.applySortByPriceVsMa50(symbols);
+                    }
 
-                        let score = 0;
-
-                        // 1. CONVERGENCE (càng nhỏ càng cao điểm - MA hội tụ chặt)
-                        const convergence = analysis.convergence?.convergence_pct;
-                        if (convergence !== null && convergence !== undefined) {
-                            // Invert score: smaller convergence = higher priority
-                            // Max 100 points for convergence 0%, decreasing to 0 at 20%
-                            score += Math.max(0, 100 - convergence * 5);
-                        }
-
-                        // 2. PERFECT ORDER (+50 points)
-                        // if (analysis.perfect_order === true) {
-                        //     score += 50;
-                        // }
-
-                        // 3. PRICE > MA50 (+30 points)
-                        // const priceVsMA50 = analysis.price_position?.vs_ma50;
-                        // if (priceVsMA50 !== null && priceVsMA50 !== undefined && priceVsMA50 > 0) {
-                        //     score += 30;
-                        // }
-
-                        // // 4. VOLUME DECREASING (+20 points - tích lũy yên lặng)
-                        // const volumeTrend = analysis.volume_analysis?.trend;
-                        // const isVolumeDecreasing = analysis.volume_analysis?.is_decreasing;
-                        // if (volumeTrend === 'DECREASING' || isVolumeDecreasing === true) {
-                        //     score += 20;
-                        // }
-
-                        // 5. GOLDEN CROSS recent (+15 points)
-                        // if (analysis.golden_cross?.has_cross === true) {
-                        //     score += 15;
-                        // }
-
-                        // 6. EXPANSION chưa mạnh (+10 points - chưa breakout rõ)
-                        // const expansionQuality = analysis.expansion?.quality;
-                        // if (expansionQuality === 'WEAK' || expansionQuality === 'MODERATE') {
-                        //     score += 10;
-                        // }
-
-                        // 7. DEATH CROSS penalty (-100 points)
-                        // if (analysis.death_cross?.has_cross === true) {
-                        //     score -= 100;
-                        // }
-
-                        return score;
-                    };
-
-                    // Sort by priority score (highest first)
-                    symbols.sort((a, b) => {
-                        return calculatePriority(b) - calculatePriority(a);
-                    });
-
-                    return symbols;
+                    // Use custom sorting based on clicked column
+                    const sortConfig = this.sortBy[0]; // Vuetify returns array [{key, order}]
+                    return this.applySortByColumn(symbols, sortConfig.key, sortConfig.order);
                 },
                 priceStats() {
                     if (!this.matrixData || !this.matrixData.symbols) {
@@ -547,6 +498,102 @@
                 }
             },
             methods: {
+                /**
+                 * Apply priority-based sorting (default when no column clicked)
+                 */
+                applySortByPriceVsMa50(symbols) {
+                    return symbols.sort((a, b) => {
+                        const aPriceVsMA50 = Math.abs(a.analysis?.price_position?.vs_ma50);
+                        const bPriceVsMA50 = Math.abs(b.analysis?.price_position?.vs_ma50);
+                        // Closer to MA50 means higher priority
+                        return aPriceVsMA50 - bPriceVsMA50;
+                    });
+                },
+
+                /**
+                 * Apply column-specific sorting (when user clicks column header)
+                 */
+                applySortByColumn(symbols, columnKey, order = 'asc') {
+                    const comparator = this.getComparatorForColumn(columnKey);
+                    const sortedSymbols = symbols.sort(comparator);
+                    return order === 'desc' ? sortedSymbols.reverse() : sortedSymbols;
+                },
+
+                /**
+                 * Get appropriate comparator function for each column type
+                 */
+                getComparatorForColumn(columnKey) {
+                    const comparators = {
+                        // Symbol: alphabetical
+                        symbol: (a, b) => (a.symbol || '').localeCompare(b.symbol || ''),
+
+                        // Price: by current price value
+                        price: (a, b) => {
+                            const aPrice = a.analysis?.price?.current ?? -Infinity;
+                            const bPrice = b.analysis?.price?.current ?? -Infinity;
+                            return aPrice - bPrice;
+                        },
+
+                        // Volume: by volume ratio
+                        volume: (a, b) => {
+                            const aVolume = a.analysis?.volume_analysis?.volume_ratio ?? -Infinity;
+                            const bVolume = b.analysis?.volume_analysis?.volume_ratio ?? -Infinity;
+                            return aVolume - bVolume;
+                        },
+
+                        // Price vs MA: by distance to MA50
+                        price_vs_ma: (a, b) => {
+                            const aDist = a.analysis?.price_position?.vs_ma50 ?? -Infinity;
+                            const bDist = b.analysis?.price_position?.vs_ma50 ?? -Infinity;
+                            return aDist - bDist;
+                        },
+
+                        // Convergence: by convergence percentage
+                        convergence: (a, b) => {
+                            const aConv = a.analysis?.convergence?.convergence_pct ?? Infinity;
+                            const bConv = b.analysis?.convergence?.convergence_pct ?? Infinity;
+                            return aConv - bConv;
+                        },
+
+                        // Order & Crosses: composite score
+                        order_crosses: (a, b) => {
+                            const aScore = (a.analysis?.perfect_order ? 100 : 0) +
+                                (a.analysis?.golden_cross?.has_cross ? 50 : 0) -
+                                (a.analysis?.death_cross?.has_cross ? 100 : 0);
+                            const bScore = (b.analysis?.perfect_order ? 100 : 0) +
+                                (b.analysis?.golden_cross?.has_cross ? 50 : 0) -
+                                (b.analysis?.death_cross?.has_cross ? 100 : 0);
+                            return aScore - bScore;
+                        },
+
+                        // Expansion: by quality (STRONG > MODERATE > WEAK > CONTRACTING)
+                        expansion: (a, b) => {
+                            const qualityMap = { 'STRONG': 4, 'MODERATE': 3, 'WEAK': 2, 'CONTRACTING': 1 };
+                            const aQuality = qualityMap[a.analysis?.expansion?.quality] ?? 0;
+                            const bQuality = qualityMap[b.analysis?.expansion?.quality] ?? 0;
+                            return aQuality - bQuality;
+                        },
+
+                        // Momentum: by alignment strength
+                        momentum: (a, b) => {
+                            const alignmentMap = {
+                                'BULLISH_ALIGNED': 5,
+                                'MOSTLY_BULLISH': 4,
+                                'MIXED': 3,
+                                'MOSTLY_BEARISH': 2,
+                                'BEARISH_ALIGNED': 1
+                            };
+                            const aAlign = alignmentMap[a.analysis?.momentum?.alignment] ?? 0;
+                            const bAlign = alignmentMap[b.analysis?.momentum?.alignment] ?? 0;
+                            return aAlign - bAlign;
+                        }
+                    };
+
+                    return comparators[columnKey] || comparators.symbol;
+                },
+
+                // ==================== UI HELPERS ====================
+
                 formatPriceChange(price, changePercent) {
                     if (price === null || price === undefined) return '-';
                     // Price is already in thousands (e.g., 23.55 = 23,550 VND)
