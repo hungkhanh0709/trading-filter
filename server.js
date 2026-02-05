@@ -16,9 +16,10 @@ const getTradingViewUrl = (exchange, symbol) => {
 };
 
 // File paths
-const WATCH_LIST_FILE = path.join(__dirname, 'data', 'watch_list.json');
+const WATCH_LIST_FILE = path.join(__dirname, 'data', 'watch-list.json');
 const VN30_FILE = path.join(__dirname, 'data', 'vn30.json');
 const VN100_FILE = path.join(__dirname, 'data', 'vn100.json');
+const HNX30_FILE = path.join(__dirname, 'data', 'hnx30.json');
 const PYTHON_VENV = path.join(__dirname, '.venv', 'bin', 'python');
 const FETCH_PRICES_SCRIPT = path.join(__dirname, 'scripts', 'fetch_prices.py');
 const ANALYZE_STOCK_SCRIPT = path.join(__dirname, 'scripts', 'analyze_stock.py');
@@ -54,6 +55,16 @@ try {
     console.error('❌ Error loading VN100 data:', error.message);
 }
 
+// Load HNX30 index list
+let hnx30List = [];
+try {
+    const hnx30Data = JSON.parse(fs.readFileSync(HNX30_FILE, 'utf8'));
+    hnx30List = hnx30Data.symbols || [];
+    console.log(`✅ Loaded ${hnx30List.length} HNX30 symbols`);
+} catch (error) {
+    console.error('❌ Error loading HNX30 data:', error.message);
+}
+
 
 
 /**
@@ -75,6 +86,7 @@ app.get('/api/symbols', async (req, res) => {
             total: symbols.length,
             vn30: symbols.filter(s => s.isVN30).length,
             vn100: symbols.filter(s => s.isVN100).length,
+            hnx30: symbols.filter(s => s.isHNX30).length,
             inWatchlist: symbols.filter(s => s.inWatchlist).length
         };
 
@@ -154,9 +166,9 @@ app.get('/api/analyze/:symbol', async (req, res) => {
 
 /**
  * Get symbols list based on exchange filter
- * Unified logic for loading watchlist, VN30, VN100 symbols
+ * Unified logic for loading watchlist, VN30, VN100, HNX30 symbols
  * 
- * @param {string} exchange - 'WATCHLIST', 'VN30', 'VN100', 'HOSE', or 'HNX'
+ * @param {string} exchange - 'WATCHLIST', 'VN30', 'VN100', 'HNX30', 'HOSE', or 'HNX'
  * @returns {Array} Array of symbol objects with metadata
  */
 function getSymbols(exchange) {
@@ -187,6 +199,7 @@ function getSymbols(exchange) {
     const createSymbol = (symbol, exchangeHint) => {
         const isVN30 = vn30List.includes(symbol);
         const isVN100 = vn100List.includes(symbol);
+        const isHNX30 = hnx30List.includes(symbol);
         const inWatchlist = watchlistSymbols.has(symbol);
         const symbolExchange = watchlistData[symbol] || exchangeHint || 'HOSE';
 
@@ -195,6 +208,7 @@ function getSymbols(exchange) {
             exchange: symbolExchange,
             isVN30,
             isVN100,
+            isHNX30,
             inWatchlist,
             tradingViewUrl: getTradingViewUrl(symbolExchange, symbol)
         };
@@ -207,6 +221,10 @@ function getSymbols(exchange) {
 
     if (exchange === 'VN100') {
         return vn100List.map(s => createSymbol(s, 'HOSE'));
+    }
+
+    if (exchange === 'HNX30') {
+        return hnx30List.map(s => createSymbol(s, 'HNX'));
     }
 
     if (exchange === 'WATCHLIST') {
@@ -333,6 +351,7 @@ app.listen(PORT, () => {
     console.log('━'.repeat(50));
     console.log(`🚀 Server running at http://localhost:${PORT}`);
     console.log(`📊 VN30 symbols loaded: ${vn30List.length}`);
+    console.log(`📊 HNX30 symbols loaded: ${hnx30List.length}`);
     console.log(`📊 VN100 symbols loaded: ${vn100List.length}`);
     console.log('━'.repeat(50));
 });

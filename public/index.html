@@ -35,6 +35,11 @@
             font-size: 1em;
         }
 
+        .hnx30-icon {
+            color: #FF9800;
+            font-size: 1em;
+        }
+
         .matrix-cell {
             text-align: center;
             padding: 4px;
@@ -143,6 +148,7 @@
                         <v-tabs v-model="selectedExchange" density="compact" class="px-4">
                             <v-tab value="WATCHLIST">Watch List</v-tab>
                             <v-tab value="VN30">VN30</v-tab>
+                            <v-tab value="HNX30">HNX30</v-tab>
                             <v-tab value="VN100">VN100</v-tab>
                         </v-tabs>
 
@@ -181,6 +187,7 @@
                                         {{ item.exchange }}
                                     </v-chip>
                                     <v-icon v-if="item.isVN30" icon="mdi-star" class="vn30-icon" title="VN30"></v-icon>
+                                    <v-icon v-if="item.isHNX30" icon="mdi-star-half-full" class="hnx30-icon" title="HNX30"></v-icon>
                                     <v-icon v-if="item.isVN100" icon="mdi-star-outline" class="vn100-icon"
                                         title="VN100"></v-icon>
                                 </a>

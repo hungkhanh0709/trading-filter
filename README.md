@@ -28,7 +28,7 @@ Mở trình duyệt: **http://localhost:3000**
 
 ### Thêm mã vào Watch List
 
-Chỉnh sửa file `data/watch_list.json`:
+Chỉnh sửa file `data/watch-list.json`:
 
 ```json
 [
@@ -48,7 +48,7 @@ Chỉnh sửa file `data/watch_list.json`:
 
 ### Tabs hiển thị
 
-- **Watch List**: Tất cả mã trong watch_list.json
+- **Watch List**: Tất cả mã trong watch-list.json
 - **HOSE**: Chỉ mã sàn HOSE
 - **HNX**: Chỉ mã sàn HNX
 - **VN30**: 30 mã blue-chip HOSE
@@ -63,14 +63,14 @@ trading-filter/
 ├── data/
 │   ├── vn30.json         # Danh sách VN30 (reference)
 │   ├── vn100.json        # Danh sách VN100 (reference)
-│   └── watch_list.json   # Watch List - EDIT thủ công
+│   └── watch-list.json   # Watch List - EDIT thủ công
 └── public/
     └── index.html         # Vue 3 + Vuetify 3 UI
 ```
 
 ### File Purposes
 
-**`watch_list.json`** - Danh sách theo dõi:
+**`watch-list.json`** - Danh sách theo dõi:
 - ✅ SAFE to edit manually
 - ✅ Organized by date
 - ✅ Hỗ trợ cả HOSE và HNX
@@ -87,10 +87,10 @@ trading-filter/
 Trả về data Watch List
 
 ### `GET /api/stocks?exchange=VN30`
-Trả về data VN30 với status từ watch_list.json
+Trả về data VN30 với status từ watch-list.json
 
 ### `GET /api/stocks?exchange=VN100`
-Trả về data VN100 với status từ watch_list.json
+Trả về data VN100 với status từ watch-list.json
 
 ### `GET /api/analyze/:symbol`
 Phân tích kỹ thuật cho một mã
@@ -98,7 +98,7 @@ Phân tích kỹ thuật cho một mã
 ## 💡 Tips
 
 ### Theo dõi mã mới:
-1. Mở `data/watch_list.json`
+1. Mở `data/watch-list.json`
 2. Thêm mã vào HOSE hoặc HNX
 3. Save
 4. Refresh page
