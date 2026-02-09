@@ -88,9 +88,9 @@ class DataFetcher:
         has_critical_data = False
         
         try:
-            # 1. Historical price data (CRITICAL - bắt buộc phải có)
+            # 1. Historical price data - Request 2 years for better EMA accuracy
             end_date = datetime.now().strftime('%Y-%m-%d')
-            start_date = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=730)).strftime('%Y-%m-%d')
             
             print(f"  ⏳ Lấy lịch sử giá ({start_date} -> {end_date})...", file=sys.stderr)
             
