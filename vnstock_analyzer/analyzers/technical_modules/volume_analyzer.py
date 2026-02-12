@@ -76,15 +76,15 @@ def analyze_volume_trend(df, lookback_days=20):
         icon = VN_ICONS['STRONG_DOWN']
         color = VN_COLORS['FLOOR']  # Cyan - Tốt cho tích luỹ
         label = f"{volume_ratio:.1%} 📉"
-        tooltip = f"<strong>📊 Volume Trend</strong><br>Xu hướng: DECREASING 📉<br>Volume hiện tại: {current_volume:,.0f}<br>Volume TB 20 ngày: {avg_volume:,.0f}<br>Tỉ lệ: {volume_ratio:.1%}<br><em>Volume giảm - Dấu hiệu tích luỹ</em>"
+        tooltip = f"<strong>📊 Volume Trend</strong><br>Volume hôm nay: {current_volume:,.0f}<br>{volume_ratio:.1%} TB 20 ngày ({avg_volume:,.0f})<br>"
     elif volume_ratio > 1.3:
         trend = 'INCREASING'
         is_decreasing = False
         message = f"📈 Volume tăng ({volume_ratio:.1%} vs TB {lookback_days} ngày)"
         icon = VN_ICONS['STRONG_UP']
-        color = VN_COLORS['CEILING']  # Purple - Xuất sắc (breakout)
+        color = VN_COLORS['CEILING']  # Purple - Xuất sắc
         label = f"{volume_ratio:.1%} 📈"
-        tooltip = f"<strong>📊 Volume Trend</strong><br>Xu hướng: INCREASING 📈<br>Volume hiện tại: {current_volume:,.0f}<br>Volume TB 20 ngày: {avg_volume:,.0f}<br>Tỉ lệ: {volume_ratio:.1%}<br><em>Volume tăng - Quan sát breakout</em>"
+        tooltip = f"<strong>📊 Volume Trend</strong><br>Volume hôm nay: {current_volume:,.0f}<br>{volume_ratio:.1%} TB 20 ngày ({avg_volume:,.0f})<br>"
     else:
         trend = 'STABLE'
         is_decreasing = False
@@ -92,7 +92,7 @@ def analyze_volume_trend(df, lookback_days=20):
         icon = VN_ICONS['NEUTRAL']
         color = VN_COLORS['REFERENCE']  # Yellow - Trung tính
         label = f"{volume_ratio:.1%} ➡️"
-        tooltip = f"<strong>📊 Volume Trend</strong><br>Xu hướng: STABLE ➡️<br>Volume hiện tại: {current_volume:,.0f}<br>Volume TB 20 ngày: {avg_volume:,.0f}<br>Tỉ lệ: {volume_ratio:.1%}<br><em>Volume ổn định</em>"
+        tooltip = f"<strong>📊 Volume Trend</strong><br>Volume hôm nay: {current_volume:,.0f}<br>{volume_ratio:.1%} TB 20 ngày ({avg_volume:,.0f})<br>"
     
     return {
         'current_volume': current_volume,

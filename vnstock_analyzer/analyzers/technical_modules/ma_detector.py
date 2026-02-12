@@ -339,7 +339,6 @@ def detect_golden_cross(df):
         tooltip = (
             f"<strong>⭐ {best_cross['label']}</strong><br>"
             f"Loại: {best_cross['type']}<br>"
-            f"Độ uy tín: {best_cross['score']}/10<br>"
         )
         label = f"{best_cross['icon']} {best_cross['label']}"
     
