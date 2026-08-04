@@ -1,18 +1,16 @@
 {
     "name": "HNX30",
     "description": "30 largest companies by market capitalization on HNX stock exchange",
-    "lastUpdated": "2026-02-05",
-    "effectiveDate": "2026-01-01",
+    "lastUpdated": "2026-08-04",
+    "effectiveDate": "2026-05-04",
     "symbols": [
         "BVS",
         "CAP",
         "CEO",
-        "DHT",
         "DP3",
         "DTD",
         "DVM",
         "DXP",
-        "HGM",
         "HUT",
         "IDC",
         "IDV",
@@ -21,18 +19,35 @@
         "LAS",
         "LHC",
         "MBS",
+        "NDN",
         "NTP",
         "PLC",
         "PSD",
         "PVB",
         "PVC",
-        "PVI",
         "PVS",
         "SHS",
         "SLS",
         "TMB",
         "TNG",
+        "TVD",
         "VC3",
-        "VCS"
+        "VCS",
+        "VFS"
+    ],
+    "history": [
+        {
+            "date": "20260504",
+            "removed": [
+                "DHT",
+                "HGM",
+                "PVI"
+            ],
+            "added": [
+                "NDN",
+                "TVD",
+                "VFS"
+            ]
+        }
     ]
 }

@@ -72,7 +72,7 @@ try {
  * Get symbols list
  * 
  * Query params:
- *   - exchange: WATCHLIST (default), VN30, VN100, HOSE, HNX
+ *   - exchange: WATCHLIST (default), VN30, VN100, HNX30, ALL, POTENTIAL, HOSE, HNX
  */
 app.get('/api/symbols', async (req, res) => {
     try {
@@ -168,7 +168,7 @@ app.get('/api/analyze/:symbol', async (req, res) => {
  * Get symbols list based on exchange filter
  * Unified logic for loading watchlist, VN30, VN100, HNX30 symbols
  * 
- * @param {string} exchange - 'WATCHLIST', 'VN30', 'VN100', 'HNX30', 'HOSE', or 'HNX'
+ * @param {string} exchange - 'WATCHLIST', 'VN30', 'VN100', 'HNX30', 'ALL', 'POTENTIAL', 'HOSE', or 'HNX'
  * @returns {Array} Array of symbol objects with metadata
  */
 function getSymbols(exchange) {
@@ -229,6 +229,19 @@ function getSymbols(exchange) {
 
     if (exchange === 'WATCHLIST') {
         return Array.from(watchlistSymbols).map(s => createSymbol(s));
+    }
+
+    if (exchange === 'ALL' || exchange === 'POTENTIAL') {
+        const allSymbols = new Set([
+            ...Array.from(watchlistSymbols),
+            ...vn30List,
+            ...vn100List,
+            ...hnx30List
+        ]);
+
+        return Array.from(allSymbols).map(s =>
+            createSymbol(s, hnx30List.includes(s) ? 'HNX' : 'HOSE')
+        );
     }
 
     if (exchange === 'HOSE' || exchange === 'HNX') {

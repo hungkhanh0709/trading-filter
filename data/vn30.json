@@ -1,13 +1,13 @@
 {
     "name": "VN30",
     "description": "30 largest companies by market capitalization on Vietnam stock exchanges",
-    "lastUpdated": "2026-01-19",
-    "effectiveDate": "2026-01-01",
+    "lastUpdated": "2026-08-04",
+    "effectiveDate": "2026-08-03",
     "symbols": [
         "ACB",
         "BID",
+        "BSR",
         "CTG",
-        "DGC",
         "FPT",
         "GAS",
         "GVR",
@@ -15,16 +15,16 @@
         "HPG",
         "LPB",
         "MBB",
+        "MCH",
         "MSN",
         "MWG",
-        "PLX",
         "SAB",
         "SHB",
         "SSB",
         "SSI",
         "STB",
         "TCB",
-        "TPB",
+        "TCX",
         "VCB",
         "VHM",
         "VIB",
@@ -43,6 +43,26 @@
             ],
             "added": [
                 "VPL"
+            ]
+        },
+        {
+            "date": "20260513",
+            "removed": [
+                "DGC"
+            ],
+            "added": [
+                "BSR"
+            ]
+        },
+        {
+            "date": "20260803",
+            "removed": [
+                "PLX",
+                "TPB"
+            ],
+            "added": [
+                "MCH",
+                "TCX"
             ]
         }
     ]
