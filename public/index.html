@@ -35,6 +35,11 @@
             font-size: 1em;
         }
 
+        .hnx30-icon {
+            color: #FF9800;
+            font-size: 1em;
+        }
+
         .matrix-cell {
             text-align: center;
             padding: 4px;
@@ -126,15 +131,12 @@
                 <v-spacer></v-spacer>
                 <!-- Analysis Progress -->
                 <div v-if="autoAnalyzing" class="mr-4" style="display: flex; align-items: center; gap: 8px;">
-                    <v-progress-circular indeterminate size="20" width="2" color="white"></v-progress-circular>
                     <span style="font-size: 0.9em;">
                         Phân tích: {{ analyzingProgress.completed }}/{{ analyzingProgress.total }}
                     </span>
                 </div>
                 <v-btn icon="mdi-chart-box-outline" @click="autoAnalyzeAll" :loading="autoAnalyzing" variant="text"
                     title="Phân tích tất cả"></v-btn>
-                <v-btn icon="mdi-cash-sync" @click="loadPrices(true)" :loading="loadingPrices" variant="text"
-                    title="Refresh Prices"></v-btn>
                 <v-btn icon="mdi-refresh" @click="loadData" :loading="loading" variant="text" title="Reload"></v-btn>
             </v-app-bar>
 
@@ -146,15 +148,25 @@
                         <v-tabs v-model="selectedExchange" density="compact" class="px-4">
                             <v-tab value="WATCHLIST">Watch List</v-tab>
                             <v-tab value="VN30">VN30</v-tab>
+                            <v-tab value="HNX30">HNX30</v-tab>
                             <v-tab value="VN100">VN100</v-tab>
+                            <v-tab value="POTENTIAL">POTENTIAL</v-tab>
                         </v-tabs>
 
                         <v-data-table :headers="matrixHeaders" :items="sortedSymbols" :items-per-page="100"
-                            class="elevation-1" density="compact" :search="search">
+                            v-model:sort-by="sortBy" :must-sort="false" :multi-sort="false" class="elevation-1"
+                            density="compact" :search="search">
                             <template v-slot:top>
                                 <v-text-field v-model="search" label="Tìm kiếm mã" prepend-inner-icon="mdi-magnify"
                                     variant="outlined" hide-details single-line class="ma-4"
                                     density="compact"></v-text-field>
+                                <v-alert v-if="selectedExchange === 'POTENTIAL'" type="info" variant="tonal"
+                                    class="mx-4 mb-4" density="compact">
+                                    <div style="font-weight: 600;">
+                                        {{ potentialStats.qualified }}/{{ potentialStats.analyzed }} mã đạt bộ lọc
+                                        "Tiềm năng"
+                                    </div>
+                                </v-alert>
                             </template>
 
                             <!-- Custom Header for Price Column with Stats -->
@@ -174,129 +186,158 @@
 
                             <!-- Symbol Column with Analyze Button -->
                             <template v-slot:item.symbol="{ item }">
-                                <div style="display: flex; gap: 6px;">
-                                    <a :href="item.tradingViewUrl" target="_blank" class="stock-symbol"
-                                        style="text-decoration: none; color: inherit; display: flex;">
-                                        {{ item.symbol }}
-                                        <v-chip v-if="item.exchange" size="x-small"
-                                            :color="item.exchange === 'HOSE' ? 'blue' : 'orange'" variant="flat"
-                                            style="margin-left: 4px; font-size: 0.7em; height: 16px;">
-                                            {{ item.exchange }}
+                                <a :href="item.tradingViewUrl" target="_blank" class="stock-symbol"
+                                    style="text-decoration: none; color: inherit; display: flex;">
+                                    {{ item.symbol }}
+                                    <v-chip v-if="item.exchange" size="x-small"
+                                        :color="item.exchange === 'HOSE' ? 'blue' : 'orange'" variant="flat"
+                                        style="margin-left: 4px; font-size: 0.7em; height: 16px;">
+                                        {{ item.exchange }}
+                                    </v-chip>
+                                    <v-icon v-if="item.isVN30" icon="mdi-star" class="vn30-icon" title="VN30"></v-icon>
+                                    <v-icon v-if="item.isHNX30" icon="mdi-star-half-full" class="hnx30-icon" title="HNX30"></v-icon>
+                                    <v-icon v-if="item.isVN100" icon="mdi-star-outline" class="vn100-icon"
+                                        title="VN100"></v-icon>
+                                </a>
+                            </template>
+
+                            <template v-slot:item.potential="{ item }">
+                                <v-tooltip v-if="item.potentialSignal" location="top">
+                                    <template v-slot:activator="{ props }">
+                                        <v-chip v-bind="props" :color="item.potentialSignal.color"
+                                            :prepend-icon="item.potentialSignal.icon" size="small"
+                                            class="text-white font-weight-bold">
+                                            {{ item.potentialSignal.badge }}
                                         </v-chip>
-                                        <v-icon v-if="item.isVN30" icon="mdi-star" class="vn30-icon"
-                                            title="VN30"></v-icon>
-                                        <v-icon v-if="item.isVN100" icon="mdi-star-outline" class="vn100-icon"
-                                            title="VN100"></v-icon>
-                                    </a>
-                                    <v-btn icon size="x-small" variant="text" @click.stop="fetchPrice(item)"
-                                        :loading="item.fetchingPrice" :color="item.price ? 'success' : 'primary'"
-                                        density="compact">
-                                        <v-icon icon="mdi-cash-sync" size="small"></v-icon>
-                                        <v-tooltip activator="parent" location="top">
-                                            {{ getPriceButtonTooltip(item) }}
-                                        </v-tooltip>
-                                    </v-btn>
-                                </div>
+                                    </template>
+                                    <div v-html="item.potentialSignal.tooltip"></div>
+                                </v-tooltip>
+                                <span v-else style="color: #999;">-</span>
                             </template>
 
                             <!-- Price Change Column -->
                             <template v-slot:item.price="{ item }">
-                                <div class="price-cell" :class="getChangeClass(item.changePercent)">
-                                    {{ formatPriceChange(item.price, item.changePercent) }}
+                                <div class="price-cell" :class="getChangeClass(item.analysis?.price?.changePercent)">
+                                    {{ formatPriceChange(item.analysis?.price?.current,
+                                    item.analysis?.price?.changePercent) }}
                                 </div>
+                            </template>
+
+                            <!-- Volume Column -->
+                            <template v-slot:item.volume="{ item }">
+                                <v-tooltip v-if="item.analysis?.volume_analysis" location="top">
+                                    <template v-slot:activator="{ props }">
+                                        <v-chip v-bind="props" :color="item.analysis.volume_analysis.color"
+                                            :prepend-icon="item.analysis.volume_analysis.icon" size="small"
+                                            class="text-white font-weight-bold">
+                                            {{ item.analysis.volume_analysis.label }}
+                                        </v-chip>
+                                    </template>
+                                    <div v-html="item.analysis.volume_analysis.tooltip"></div>
+                                </v-tooltip>
+                                <span v-else style="color: #999;">-</span>
                             </template>
 
                             <!-- Price vs MA Column -->
                             <template v-slot:item.price_vs_ma="{ item }">
-                                <v-tooltip v-if="item.analysis?.columns" location="top">
+                                <v-tooltip v-if="item.analysis?.price_position" location="top">
                                     <template v-slot:activator="{ props }">
-                                        <v-chip v-if="getColumn(item.analysis.columns, 'price_position')" v-bind="props"
-                                            :color="getColumn(item.analysis.columns, 'price_position').color"
-                                            :prepend-icon="getColumn(item.analysis.columns, 'price_position').icon"
-                                            size="small" variant="flat">
-                                            {{ getColumn(item.analysis.columns, 'price_position').value }}
+                                        <v-chip v-bind="props" :color="item.analysis.price_position.color"
+                                            :prepend-icon="item.analysis.price_position.icon" size="small"
+                                            class="text-white font-weight-bold">
+                                            {{ item.analysis.price_position.label }}
                                         </v-chip>
-                                        <span v-else style="color: #999;">-</span>
                                     </template>
-                                    <div v-html="getColumn(item.analysis.columns, 'price_position').tooltip"></div>
+                                    <div v-html="item.analysis.price_position.tooltip"></div>
                                 </v-tooltip>
                                 <span v-else style="color: #999;">-</span>
                             </template>
 
                             <!-- Convergence Column -->
                             <template v-slot:item.convergence="{ item }">
-                                <v-tooltip v-if="item.analysis?.columns" location="top">
+                                <v-tooltip v-if="item.analysis?.convergence" location="top">
                                     <template v-slot:activator="{ props }">
-                                        <v-chip v-if="getColumn(item.analysis.columns, 'convergence')" v-bind="props"
-                                            :color="getColumn(item.analysis.columns, 'convergence').color"
-                                            :prepend-icon="getColumn(item.analysis.columns, 'convergence').icon"
-                                            size="small" variant="flat" class="font-weight-bold">
-                                            {{ getColumn(item.analysis.columns, 'convergence').value }}
+                                        <v-chip v-bind="props" :color="item.analysis.convergence.color"
+                                            :prepend-icon="item.analysis.convergence.icon" size="small"
+                                            class="text-white font-weight-bold">
+                                            {{ item.analysis.convergence.label }}
                                         </v-chip>
-                                        <span v-else style="color: #999;">-</span>
                                     </template>
-                                    <div v-html="getColumn(item.analysis.columns, 'convergence').tooltip"></div>
+                                    <div v-html="item.analysis.convergence.tooltip"></div>
                                 </v-tooltip>
                                 <span v-else style="color: #999;">-</span>
                             </template>
 
-                            <!-- Tight Convergence Column - MA SIÊU XOẮN -->
-                            <template v-slot:item.tight_convergence="{ item }">
-                                <v-tooltip v-if="item.analysis?.columns" location="top">
-                                    <template v-slot:activator="{ props }">
-                                        <v-chip v-if="getColumn(item.analysis.columns, 'tight_convergence')"
-                                            v-bind="props"
-                                            :color="getColumn(item.analysis.columns, 'tight_convergence').color"
-                                            :prepend-icon="getColumn(item.analysis.columns, 'tight_convergence').icon"
-                                            size="small" variant="flat" class="font-weight-bold">
-                                            {{ getColumn(item.analysis.columns, 'tight_convergence').value }}
-                                        </v-chip>
-                                        <span v-else style="color: #999;">-</span>
-                                    </template>
-                                    <div v-html="getColumn(item.analysis.columns, 'tight_convergence').tooltip"></div>
-                                </v-tooltip>
-                                <span v-else style="color: #999;">-</span>
-                            </template>
+                            <!-- Order & Crosses Column - 3 icons independent -->
+                            <template v-slot:item.order_crosses="{ item }">
+                                <div v-if="item.analysis" style="display: flex; gap: 4px; justify-content: center;">
+                                    <!-- Perfect Order Icon -->
+                                    <v-tooltip location="top">
+                                        <template v-slot:activator="{ props }">
+                                            <v-icon v-bind="props"
+                                                :icon="item.analysis.perfect_order ? 'mdi-check-circle' : 'mdi-close-circle'"
+                                                :color="item.analysis.perfect_order ? 'success' : 'grey'" size="small"
+                                                :style="{opacity: item.analysis.perfect_order ? 1 : 0.3}">
+                                            </v-icon>
+                                        </template>
+                                        <div v-if="item.analysis.perfect_order">✅ Perfect Order: MA10 > MA20 > MA50
+                                        </div>
+                                        <div v-else>❌ No Perfect Order</div>
+                                    </v-tooltip>
 
-                            <!-- Perfect Order Column -->
-                            <template v-slot:item.perfect_order="{ item }">
-                                <v-icon v-if="item.analysis?.perfect_order" icon="mdi-check-circle"
-                                    color="success"></v-icon>
-                                <v-icon v-else-if="item.analysis" icon="mdi-close-circle" color="grey"
-                                    size="small"></v-icon>
+                                    <!-- Golden Cross Icon -->
+                                    <v-tooltip location="top">
+                                        <template v-slot:activator="{ props }">
+                                            <v-icon v-bind="props"
+                                                :icon="item.analysis.golden_cross?.icon || 'mdi-star-circle'"
+                                                :color="item.analysis.golden_cross?.color || 'grey'" size="small"
+                                                :style="{opacity: item.analysis.golden_cross?.has_cross ? 1 : 0.3}">
+                                            </v-icon>
+                                        </template>
+                                        <div v-html="item.analysis.golden_cross?.tooltip || 'No Golden Cross'"></div>
+                                    </v-tooltip>
+
+                                    <!-- Death Cross Icon -->
+                                    <v-tooltip location="top">
+                                        <template v-slot:activator="{ props }">
+                                            <v-icon v-bind="props" icon="mdi-close-circle"
+                                                :color="item.analysis.death_cross?.has_cross ? 'error' : 'grey'"
+                                                size="small"
+                                                :style="{opacity: item.analysis.death_cross?.has_cross ? 1 : 0.3}">
+                                            </v-icon>
+                                        </template>
+                                        <div v-html="item.analysis.death_cross?.tooltip || 'No Death Cross'"></div>
+                                    </v-tooltip>
+                                </div>
                                 <span v-else style="color: #999;">-</span>
                             </template>
 
                             <!-- Expansion Column -->
                             <template v-slot:item.expansion="{ item }">
-                                <v-tooltip v-if="item.analysis?.columns" location="top">
+                                <v-tooltip v-if="item.analysis?.expansion" location="top">
                                     <template v-slot:activator="{ props }">
-                                        <v-chip v-if="getColumn(item.analysis.columns, 'expansion')" v-bind="props"
-                                            :color="getColumn(item.analysis.columns, 'expansion').color"
-                                            :prepend-icon="getColumn(item.analysis.columns, 'expansion').icon"
-                                            size="small" variant="flat">
-                                            {{ getColumn(item.analysis.columns, 'expansion').value }}
+                                        <v-chip v-bind="props" :color="item.analysis.expansion.color"
+                                            :prepend-icon="item.analysis.expansion.icon" size="small"
+                                            class="text-white font-weight-bold">
+                                            {{ item.analysis.expansion.label }}
                                         </v-chip>
-                                        <span v-else style="color: #999;">-</span>
                                     </template>
-                                    <div v-html="getColumn(item.analysis.columns, 'expansion').tooltip"></div>
+                                    <div v-html="item.analysis.expansion.tooltip"></div>
                                 </v-tooltip>
                                 <span v-else style="color: #999;">-</span>
                             </template>
 
                             <!-- Momentum Column -->
                             <template v-slot:item.momentum="{ item }">
-                                <v-tooltip v-if="item.analysis?.columns" location="top">
+                                <v-tooltip v-if="item.analysis?.momentum" location="top">
                                     <template v-slot:activator="{ props }">
-                                        <v-chip v-if="getColumn(item.analysis.columns, 'momentum')" v-bind="props"
-                                            :color="getColumn(item.analysis.columns, 'momentum').color"
-                                            :prepend-icon="getColumn(item.analysis.columns, 'momentum').icon"
-                                            size="small" variant="flat">
-                                            {{ getColumn(item.analysis.columns, 'momentum').value }}
+                                        <v-chip v-bind="props" :color="item.analysis.momentum.color"
+                                            :prepend-icon="item.analysis.momentum.icon" size="small"
+                                            class="text-white font-weight-bold">
+                                            {{ item.analysis.momentum.label }}
                                         </v-chip>
-                                        <span v-else style="color: #999;">-</span>
                                     </template>
-                                    <div v-html="getColumn(item.analysis.columns, 'momentum').tooltip"></div>
+                                    <div v-html="item.analysis.momentum.tooltip"></div>
                                 </v-tooltip>
                                 <span v-else style="color: #999;">-</span>
                             </template>
@@ -347,7 +388,6 @@
             data() {
                 return {
                     loading: false,
-                    loadingPrices: false,
                     selectedExchange: 'WATCHLIST',
                     matrixData: {
                         dates: [],
@@ -361,46 +401,59 @@
                     analyzingQueue: [],
                     analyzingProgress: { completed: 0, total: 0 },
                     maxConcurrent: 5,
-                    autoAnalyzing: false
+                    autoAnalyzing: false,
+                    // Table sorting state
+                    sortBy: [] // Vuetify v-model:sort-by binding
                 };
             },
             computed: {
-                // Sorted symbols with convergence priority
+                displayedSymbols() {
+                    const symbols = this.matrixData?.symbols || [];
+                    if (this.selectedExchange !== 'POTENTIAL') {
+                        return symbols;
+                    }
+
+                    return symbols.filter(symbol => symbol.potentialSignal?.isPotential);
+                },
+                // Sorted symbols
                 sortedSymbols() {
-                    if (!this.matrixData || !this.matrixData.symbols) {
+                    if (!this.displayedSymbols) {
                         return [];
                     }
 
-                    const symbols = [...this.matrixData.symbols];
+                    const symbols = [...this.displayedSymbols];
 
-                    // Sort by convergence strength (highest first)
-                    // Symbols without convergence will be at the end
-                    symbols.sort((a, b) => {
-                        const aConvergence = a.analysis?.convergence?.strength || 0;
-                        const bConvergence = b.analysis?.convergence?.strength || 0;
+                    // Default sort
+                    if (!this.sortBy || this.sortBy.length === 0) {
+                        if (this.selectedExchange === 'POTENTIAL') {
+                            return this.applySortByPotential(symbols);
+                        }
+                        return this.applySortByPriceVsMa50(symbols);
+                    }
 
-                        // Descending order (highest convergence first)
-                        return bConvergence - aConvergence;
-                    });
-
-                    return symbols;
+                    // Use custom sorting based on clicked column
+                    const sortConfig = this.sortBy[0]; // Vuetify returns array [{key, order}]
+                    return this.applySortByColumn(symbols, sortConfig.key, sortConfig.order);
                 },
                 priceStats() {
-                    if (!this.matrixData || !this.matrixData.symbols) {
+                    if (!this.displayedSymbols) {
                         return { up: 0, down: 0, neutral: 0, total: 0 };
                     }
 
                     let up = 0, down = 0, neutral = 0;
 
-                    this.matrixData.symbols.forEach(symbol => {
-                        if (symbol.changePercent !== null && symbol.changePercent !== undefined) {
-                            if (symbol.changePercent > 0) {
+                    this.displayedSymbols.forEach(symbol => {
+                        const change = symbol.analysis?.price?.changePercent;
+                        if (change !== null && change !== undefined) {
+                            if (change > 0) {
                                 up++;
-                            } else if (symbol.changePercent < 0) {
+                            } else if (change < 0) {
                                 down++;
                             } else {
                                 neutral++;
                             }
+                        } else {
+                            neutral++;
                         }
                     });
 
@@ -411,8 +464,18 @@
                         total: up + down + neutral
                     };
                 },
+                potentialStats() {
+                    const symbols = this.matrixData?.symbols || [];
+                    const analyzed = symbols.filter(symbol => !!symbol.analysis).length;
+                    const qualified = symbols.filter(symbol => symbol.potentialSignal?.isPotential).length;
+
+                    return {
+                        analyzed,
+                        qualified
+                    };
+                },
                 matrixHeaders() {
-                    return [
+                    const headers = [
                         {
                             title: 'Symbol',
                             key: 'symbol',
@@ -428,6 +491,20 @@
                             width: '100px'
                         },
                         {
+                            title: 'Potential',
+                            key: 'potential',
+                            align: 'center',
+                            sortable: true,
+                            width: '140px'
+                        },
+                        {
+                            title: 'Volume',
+                            key: 'volume',
+                            align: 'center',
+                            sortable: true,
+                            width: '120px'
+                        },
+                        {
                             title: 'Price vs MA',
                             key: 'price_vs_ma',
                             align: 'center',
@@ -439,21 +516,14 @@
                             key: 'convergence',
                             align: 'center',
                             sortable: true,
+                            width: '150px'
+                        },
+                        {
+                            title: 'Order & Crosses',
+                            key: 'order_crosses',
+                            align: 'center',
+                            sortable: true,
                             width: '130px'
-                        },
-                        {
-                            title: 'Tight Conv.',
-                            key: 'tight_convergence',
-                            align: 'center',
-                            sortable: true,
-                            width: '120px'
-                        },
-                        {
-                            title: 'Perfect Order',
-                            key: 'perfect_order',
-                            align: 'center',
-                            sortable: true,
-                            width: '80px'
                         },
                         {
                             title: 'Expansion',
@@ -470,6 +540,10 @@
                             width: '140px'
                         },
                     ];
+
+                    return this.selectedExchange === 'POTENTIAL'
+                        ? headers
+                        : headers.filter(header => header.key !== 'potential');
                 }
             },
             mounted() {
@@ -485,6 +559,126 @@
                 }
             },
             methods: {
+                /**
+                 * Apply priority-based sorting (default when no column clicked)
+                 */
+                applySortByPriceVsMa50(symbols) {
+                    return symbols.sort((a, b) => {
+                        const aPriceVsMA50 = Math.abs(a.analysis?.price_position?.vs_ma50);
+                        const bPriceVsMA50 = Math.abs(b.analysis?.price_position?.vs_ma50);
+                        // Closer to MA50 means higher priority
+                        return aPriceVsMA50 - bPriceVsMA50;
+                    });
+                },
+
+                applySortByPotential(symbols) {
+                    return symbols.sort((a, b) => {
+                        const scoreDiff = (b.potentialSignal?.score ?? -Infinity) - (a.potentialSignal?.score ?? -Infinity);
+                        if (scoreDiff !== 0) return scoreDiff;
+
+                        const entryDiff = (b.potentialSignal?.entryScore ?? -Infinity) - (a.potentialSignal?.entryScore ?? -Infinity);
+                        if (entryDiff !== 0) return entryDiff;
+
+                        const aPriceVsMA50 = Math.abs(a.analysis?.price_position?.vs_ma50 ?? Infinity);
+                        const bPriceVsMA50 = Math.abs(b.analysis?.price_position?.vs_ma50 ?? Infinity);
+                        return aPriceVsMA50 - bPriceVsMA50;
+                    });
+                },
+
+                /**
+                 * Apply column-specific sorting (when user clicks column header)
+                 */
+                applySortByColumn(symbols, columnKey, order = 'asc') {
+                    const comparator = this.getComparatorForColumn(columnKey);
+                    const sortedSymbols = symbols.sort(comparator);
+                    return order === 'desc' ? sortedSymbols.reverse() : sortedSymbols;
+                },
+
+                /**
+                 * Get appropriate comparator function for each column type
+                 */
+                getComparatorForColumn(columnKey) {
+                    const comparators = {
+                        // Symbol: alphabetical
+                        symbol: (a, b) => (a.symbol || '').localeCompare(b.symbol || ''),
+
+                        // Price: by current price value
+                        price: (a, b) => {
+                            const aPrice = a.analysis?.price?.current ?? -Infinity;
+                            const bPrice = b.analysis?.price?.current ?? -Infinity;
+                            return aPrice - bPrice;
+                        },
+
+                        // Volume: by volume ratio
+                        volume: (a, b) => {
+                            const aVolume = a.analysis?.volume_analysis?.volume_ratio ?? -Infinity;
+                            const bVolume = b.analysis?.volume_analysis?.volume_ratio ?? -Infinity;
+                            return aVolume - bVolume;
+                        },
+
+                        potential: (a, b) => {
+                            const aScore = a.potentialSignal?.score ?? -Infinity;
+                            const bScore = b.potentialSignal?.score ?? -Infinity;
+                            if (aScore !== bScore) return aScore - bScore;
+
+                            const aEntry = a.potentialSignal?.entryScore ?? -Infinity;
+                            const bEntry = b.potentialSignal?.entryScore ?? -Infinity;
+                            return aEntry - bEntry;
+                        },
+
+                        // Price vs MA: by distance to MA50
+                        price_vs_ma: (a, b) => {
+                            const aDist = a.analysis?.price_position?.vs_ma50 ?? -Infinity;
+                            const bDist = b.analysis?.price_position?.vs_ma50 ?? -Infinity;
+                            return aDist - bDist;
+                        },
+
+                        // Convergence: by convergence percentage
+                        convergence: (a, b) => {
+                            const aConv = a.analysis?.convergence?.convergence_pct ?? Infinity;
+                            const bConv = b.analysis?.convergence?.convergence_pct ?? Infinity;
+                            return aConv - bConv;
+                        },
+
+                        // Order & Crosses: composite score
+                        order_crosses: (a, b) => {
+                            const aScore = (a.analysis?.perfect_order ? 100 : 0) +
+                                (a.analysis?.golden_cross?.has_cross ? 50 : 0) -
+                                (a.analysis?.death_cross?.has_cross ? 100 : 0);
+                            const bScore = (b.analysis?.perfect_order ? 100 : 0) +
+                                (b.analysis?.golden_cross?.has_cross ? 50 : 0) -
+                                (b.analysis?.death_cross?.has_cross ? 100 : 0);
+                            return aScore - bScore;
+                        },
+
+                        // Expansion: by quality (STRONG > MODERATE > WEAK > CONTRACTING)
+                        expansion: (a, b) => {
+                            const qualityMap = { 'STRONG': 4, 'MODERATE': 3, 'WEAK': 2, 'CONTRACTING': 1 };
+                            const aQuality = qualityMap[a.analysis?.expansion?.quality] ?? 0;
+                            const bQuality = qualityMap[b.analysis?.expansion?.quality] ?? 0;
+                            return aQuality - bQuality;
+                        },
+
+                        // Momentum: by alignment strength
+                        momentum: (a, b) => {
+                            const alignmentMap = {
+                                'BULLISH_ALIGNED': 5,
+                                'MOSTLY_BULLISH': 4,
+                                'MIXED': 3,
+                                'MOSTLY_BEARISH': 2,
+                                'BEARISH_ALIGNED': 1
+                            };
+                            const aAlign = alignmentMap[a.analysis?.momentum?.alignment] ?? 0;
+                            const bAlign = alignmentMap[b.analysis?.momentum?.alignment] ?? 0;
+                            return aAlign - bAlign;
+                        }
+                    };
+
+                    return comparators[columnKey] || comparators.symbol;
+                },
+
+                // ==================== UI HELPERS ====================
+
                 formatPriceChange(price, changePercent) {
                     if (price === null || price === undefined) return '-';
                     // Price is already in thousands (e.g., 23.55 = 23,550 VND)
@@ -504,6 +698,210 @@
                     if (change < 0) return 'change-negative';
                     return 'change-neutral';
                 },
+                evaluatePotentialSignal(analysis) {
+                    if (!analysis || analysis.error) {
+                        return null;
+                    }
+
+                    const matched = [];
+                    const warnings = [];
+                    let structureScore = 0;
+                    let entryScore = 0;
+
+                    const priceVsMA10 = analysis.price_position?.vs_ma10 ?? -Infinity;
+                    const priceVsMA20 = analysis.price_position?.vs_ma20 ?? -Infinity;
+                    const priceVsMA50 = analysis.price_position?.vs_ma50 ?? -Infinity;
+                    const convergenceLevel = analysis.convergence?.level;
+                    const momentumAlignment = analysis.momentum?.alignment;
+                    const expansionQuality = analysis.expansion?.quality;
+                    const volumeTrend = analysis.volume_analysis?.trend;
+                    const goldenCrosses = analysis.golden_cross?.crosses || [];
+                    const deathCrosses = analysis.death_cross?.crosses || [];
+
+                    const hasPerfectOrder = !!analysis.perfect_order;
+                    const hasGoldenCross = !!analysis.golden_cross?.has_cross;
+                    const hasDeathCross = !!analysis.death_cross?.has_cross;
+                    const nearMA20 = priceVsMA20 >= -1.2 && priceVsMA20 <= 2.5;
+                    const nearMA50 = priceVsMA50 >= -2.5 && priceVsMA50 <= 2.5;
+                    const supportZone = nearMA20 || nearMA50;
+                    const aboveSupport = priceVsMA20 >= -1.5 && priceVsMA50 >= -3;
+                    const bullishMomentum = ['BULLISH_ALIGNED', 'MOSTLY_BULLISH'].includes(momentumAlignment);
+                    const nonBearishMomentum = !['MOSTLY_BEARISH', 'BEARISH_ALIGNED'].includes(momentumAlignment);
+                    const tightConvergence = ['SUPER_TIGHT', 'TIGHT'].includes(convergenceLevel);
+                    const goodExpansion = ['STRONG', 'MODERATE'].includes(expansionQuality);
+                    const accumulationVolume = ['DECREASING', 'STABLE'].includes(volumeTrend);
+                    const expandingVolume = volumeTrend === 'INCREASING';
+                    const extendedAboveMA20 = priceVsMA20 > 4.5;
+                    const extendedAboveMA50 = priceVsMA50 > 8;
+                    const tooExtended = extendedAboveMA20 || extendedAboveMA50;
+                    const underPressure = priceVsMA20 < -2.5 || priceVsMA50 < -4;
+                    const freshGoldenCross = hasGoldenCross && goldenCrosses.length > 0;
+                    const severeDeathCross = hasDeathCross && deathCrosses.length > 0;
+
+                    if (hasPerfectOrder) {
+                        structureScore += 3;
+                        matched.push('Perfect Order');
+                    }
+
+                    if (freshGoldenCross) {
+                        structureScore += 3;
+                        matched.push('Golden Cross');
+                    } else if (hasGoldenCross) {
+                        structureScore += 2;
+                        matched.push('Golden Cross');
+                    }
+
+                    if (expansionQuality === 'MODERATE') {
+                        structureScore += 2;
+                        matched.push('MA expansion vừa');
+                    } else if (expansionQuality === 'STRONG') {
+                        structureScore += 1;
+                        matched.push('MA expansion mạnh');
+                    }
+
+                    if (bullishMomentum) {
+                        structureScore += 2;
+                        matched.push('Momentum bullish');
+                    } else if (nonBearishMomentum) {
+                        structureScore += 1;
+                        matched.push('Momentum không bearish');
+                    }
+
+                    if (priceVsMA20 >= 0 && priceVsMA50 >= 0) {
+                        entryScore += 2;
+                        matched.push('Giá trên MA20 và MA50');
+                    } else if (priceVsMA20 >= 0) {
+                        entryScore += 1;
+                        matched.push('Giá trên MA20');
+                    }
+
+                    if (nearMA20) {
+                        entryScore += 3;
+                        matched.push('Điểm vào gần MA20');
+                    } else if (nearMA50) {
+                        entryScore += 2;
+                        matched.push('Điểm vào gần MA50');
+                    }
+
+                    if (convergenceLevel === 'SUPER_TIGHT') {
+                        entryScore += 3;
+                        matched.push('Convergence super tight');
+                    } else if (convergenceLevel === 'TIGHT') {
+                        entryScore += 2;
+                        matched.push('Convergence tight');
+                    }
+
+                    if (accumulationVolume) {
+                        entryScore += 1;
+                        matched.push(volumeTrend === 'DECREASING' ? 'Volume tích luỹ' : 'Volume ổn định');
+                    } else if (expandingVolume && tightConvergence && priceVsMA20 >= 0) {
+                        entryScore += 1;
+                        matched.push('Volume mở rộng theo breakout');
+                    }
+
+                    if (hasDeathCross) {
+                        structureScore -= severeDeathCross ? 6 : 4;
+                        warnings.push('Death Cross');
+                    }
+
+                    if (!nonBearishMomentum) {
+                        structureScore -= 4;
+                        warnings.push('Momentum bearish');
+                    }
+
+                    if (tooExtended) {
+                        entryScore -= 4;
+                        warnings.push('Giá đã chạy quá xa MA');
+                    }
+
+                    if (underPressure) {
+                        entryScore -= 3;
+                        warnings.push('Giá mất vùng hỗ trợ MA20/MA50');
+                    }
+
+                    if (priceVsMA10 < -2) {
+                        entryScore -= 1;
+                        warnings.push('Phản ứng ngắn hạn yếu dưới MA10');
+                    }
+
+                    const baseReady =
+                        supportZone &&
+                        aboveSupport &&
+                        !tooExtended &&
+                        !underPressure;
+
+                    const trendContinuationReady =
+                        hasPerfectOrder &&
+                        goodExpansion &&
+                        bullishMomentum &&
+                        baseReady &&
+                        !hasDeathCross;
+
+                    const breakoutReady =
+                        tightConvergence &&
+                        nonBearishMomentum &&
+                        baseReady &&
+                        (hasGoldenCross || hasPerfectOrder || priceVsMA20 >= 0) &&
+                        !hasDeathCross;
+
+                    const pullbackReady =
+                        hasPerfectOrder &&
+                        bullishMomentum &&
+                        baseReady &&
+                        !hasDeathCross;
+
+                    const recoveryReady =
+                        freshGoldenCross &&
+                        nonBearishMomentum &&
+                        baseReady &&
+                        !hasDeathCross;
+
+                    const setup = pullbackReady
+                        ? 'Pullback Support'
+                        : breakoutReady
+                            ? 'Pre-Breakout Base'
+                            : trendContinuationReady
+                                ? 'Trend Continuation'
+                                : recoveryReady
+                                    ? 'Cross Recovery'
+                                    : null;
+
+                    const score = structureScore + entryScore;
+                    const isPotential =
+                        score >= 10 &&
+                        structureScore >= 4 &&
+                        entryScore >= 4 &&
+                        !!setup;
+
+                    const badge = isPotential ? `${score}đ` : 'Loại';
+                    const label = isPotential ? `${setup} · ${score}đ` : `Chưa đạt · ${score}đ`;
+                    const color = isPotential ? 'deep-purple' : 'grey';
+                    const icon = isPotential ? 'mdi-target' : 'mdi-filter-remove';
+                    const tooltip = [
+                        `<strong>${isPotential ? '🎯' : 'ℹ️'} ${label}</strong>`,
+                        `Structure score: ${structureScore}`,
+                        `Entry score: ${entryScore}`,
+                        `Total score: ${score}`,
+                        setup ? `Setup: ${setup}` : 'Setup: Chưa đủ điều kiện',
+                        matched.length ? `Khớp: ${matched.join(', ')}` : 'Khớp: Chưa có tín hiệu nổi bật',
+                        warnings.length ? `Loại trừ / rủi ro: ${warnings.join(', ')}` : 'Loại trừ / rủi ro: Không có tín hiệu xấu nổi bật'
+                    ].join('<br>');
+
+                    return {
+                        isPotential,
+                        score,
+                        structureScore,
+                        entryScore,
+                        setup,
+                        matched,
+                        warnings,
+                        badge,
+                        label,
+                        color,
+                        icon,
+                        tooltip
+                    };
+                },
                 async loadData() {
                     this.loading = true;
                     this.errorSnackbar = false;
@@ -519,7 +917,8 @@
                                 analyzing: false,
                                 analysis: null,
                                 analysisError: null,
-                                fetchingPrice: false
+                                fetchingPrice: false,
+                                potentialSignal: null
                             }));
 
                             this.matrixData = result.data;
@@ -534,37 +933,6 @@
                     } finally {
                         this.loading = false;
                     }
-                },
-
-                async loadPrices(forceRefresh = false) {
-                    if (!this.matrixData || !this.matrixData.symbols) return;
-
-                    this.loadingPrices = true;
-                    const action = forceRefresh ? 'Refreshing' : 'Fetching';
-                    console.log(`💰 ${action} prices...`);
-
-                    // Get unique symbols
-                    const uniqueSymbols = [...new Set(this.matrixData.symbols.map(s => s.symbol))];
-
-                    // Fetch prices one by one
-                    for (const symbolObj of this.matrixData.symbols) {
-                        try {
-                            const url = `/api/price/${symbolObj.symbol}${forceRefresh ? '?force=1' : ''}`;
-                            const response = await fetch(url);
-                            const result = await response.json();
-
-                            if (result.success && result.data) {
-                                symbolObj.price = result.data.price;
-                                symbolObj.changePercent = result.data.changePercent;
-                                symbolObj.priceError = result.data.error;
-                            }
-                        } catch (error) {
-                            console.log(`⚠️ Could not load price for ${symbolObj.symbol}:`, error.message);
-                        }
-                    }
-
-                    console.log('✅ Prices updated successfully');
-                    this.loadingPrices = false;
                 },
 
                 // Auto-analysis methods
@@ -631,13 +999,15 @@
                         const result = await response.json();
 
                         if (result.success) {
+                            const potentialSignal = this.evaluatePotentialSignal(result.data);
                             Object.assign(item, {
                                 ...item,
                                 analysis: result.data,
+                                potentialSignal,
                                 analyzing: false,
                                 analysisError: null
                             });
-                            console.log(`✅ [${this.analyzingProgress.completed + 1}/${this.analyzingProgress.total}] ${item.symbol}: ${result.data.recommendation}`);;
+                            console.log(`✅ [${this.analyzingProgress.completed + 1}/${this.analyzingProgress.total}] ${item.symbol}: ${potentialSignal?.label || 'Đã phân tích'}`);
                         } else {
                             item.analysisError = result.error || 'Analysis failed';
                             item.analyzing = false;
@@ -646,44 +1016,6 @@
                         item.analysisError = error.message;
                         item.analyzing = false;
                     }
-                },
-
-                // Manual price fetch (from button click)
-                async fetchPrice(item) {
-                    if (item.fetchingPrice) return;
-
-                    item.fetchingPrice = true;
-
-                    try {
-                        console.log(`💰 Fetching price for ${item.symbol}...`);
-                        const response = await fetch(`/api/price/${item.symbol}?force=1`);
-                        const result = await response.json();
-
-                        if (result.success && result.data) {
-                            item.price = result.data.price;
-                            item.changePercent = result.data.changePercent;
-                            item.priceError = result.data.error;
-                            console.log(`✅ Price updated for ${item.symbol}: ${result.data.price}`);
-                        } else {
-                            item.priceError = 'Failed to fetch price';
-                            console.error(`❌ Price fetch failed for ${item.symbol}`);
-                        }
-                    } catch (error) {
-                        item.priceError = error.message;
-                        console.error(`❌ Error fetching price for ${item.symbol}:`, error);
-                    } finally {
-                        item.fetchingPrice = false;
-                    }
-                },
-
-                getColumn(columns, type) {
-                    return columns.find(col => col.type === type);
-                },
-
-                getPriceButtonTooltip(item) {
-                    if (item.fetchingPrice) return 'Đang lấy giá...';
-                    if (item.price) return 'Cập nhật giá';
-                    return 'Lấy giá';
                 }
             },
         });

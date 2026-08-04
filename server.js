@@ -16,24 +16,18 @@ const getTradingViewUrl = (exchange, symbol) => {
 };
 
 // File paths
-const WATCH_LIST_FILE = path.join(__dirname, 'data', 'watch_list.json');
+const WATCH_LIST_FILE = path.join(__dirname, 'data', 'watch-list.json');
 const VN30_FILE = path.join(__dirname, 'data', 'vn30.json');
 const VN100_FILE = path.join(__dirname, 'data', 'vn100.json');
+const HNX30_FILE = path.join(__dirname, 'data', 'hnx30.json');
 const PYTHON_VENV = path.join(__dirname, '.venv', 'bin', 'python');
 const FETCH_PRICES_SCRIPT = path.join(__dirname, 'scripts', 'fetch_prices.py');
 const ANALYZE_STOCK_SCRIPT = path.join(__dirname, 'scripts', 'analyze_stock.py');
 
-// Price cache - 60 minutes TTL
-let priceCache = {
-    data: {},
-    timestamp: 0,
-    ttl: 60 * 60 * 1000
-};
-
-// Analysis cache - 60 minutes TTL
+// Analysis cache - 180 minutes TTL
 let analysisCache = {
     data: {},
-    ttl: 60 * 60 * 1000
+    ttl: 180 * 60 * 1000
 };
 
 // Middleware
@@ -61,6 +55,16 @@ try {
     console.error('❌ Error loading VN100 data:', error.message);
 }
 
+// Load HNX30 index list
+let hnx30List = [];
+try {
+    const hnx30Data = JSON.parse(fs.readFileSync(HNX30_FILE, 'utf8'));
+    hnx30List = hnx30Data.symbols || [];
+    console.log(`✅ Loaded ${hnx30List.length} HNX30 symbols`);
+} catch (error) {
+    console.error('❌ Error loading HNX30 data:', error.message);
+}
+
 
 
 /**
@@ -68,7 +72,7 @@ try {
  * Get symbols list
  * 
  * Query params:
- *   - exchange: WATCHLIST (default), VN30, VN100, HOSE, HNX
+ *   - exchange: WATCHLIST (default), VN30, VN100, HNX30, ALL, POTENTIAL, HOSE, HNX
  */
 app.get('/api/symbols', async (req, res) => {
     try {
@@ -82,6 +86,7 @@ app.get('/api/symbols', async (req, res) => {
             total: symbols.length,
             vn30: symbols.filter(s => s.isVN30).length,
             vn100: symbols.filter(s => s.isVN100).length,
+            hnx30: symbols.filter(s => s.isHNX30).length,
             inWatchlist: symbols.filter(s => s.inWatchlist).length
         };
 
@@ -94,33 +99,6 @@ app.get('/api/symbols', async (req, res) => {
         });
     } catch (error) {
         console.error('❌ Error in /api/symbols:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * GET /api/price/:symbol
- * Get current price for a single symbol
- * 
- * Query params:
- *   - force: "1" to clear cache and force refresh
- */
-app.get('/api/price/:symbol', async (req, res) => {
-    try {
-        const symbol = req.params.symbol.toUpperCase();
-        const forceRefresh = req.query.force === '1';
-
-        const priceData = await fetchStockPrice(symbol, forceRefresh);
-
-        res.json({
-            success: true,
-            data: priceData
-        });
-    } catch (error) {
-        console.error(`❌ Error fetching price for ${req.params.symbol}:`, error);
         res.status(500).json({
             success: false,
             error: error.message
@@ -188,9 +166,9 @@ app.get('/api/analyze/:symbol', async (req, res) => {
 
 /**
  * Get symbols list based on exchange filter
- * Unified logic for loading watchlist, VN30, VN100 symbols
+ * Unified logic for loading watchlist, VN30, VN100, HNX30 symbols
  * 
- * @param {string} exchange - 'WATCHLIST', 'VN30', 'VN100', 'HOSE', or 'HNX'
+ * @param {string} exchange - 'WATCHLIST', 'VN30', 'VN100', 'HNX30', 'ALL', 'POTENTIAL', 'HOSE', or 'HNX'
  * @returns {Array} Array of symbol objects with metadata
  */
 function getSymbols(exchange) {
@@ -221,6 +199,7 @@ function getSymbols(exchange) {
     const createSymbol = (symbol, exchangeHint) => {
         const isVN30 = vn30List.includes(symbol);
         const isVN100 = vn100List.includes(symbol);
+        const isHNX30 = hnx30List.includes(symbol);
         const inWatchlist = watchlistSymbols.has(symbol);
         const symbolExchange = watchlistData[symbol] || exchangeHint || 'HOSE';
 
@@ -229,6 +208,7 @@ function getSymbols(exchange) {
             exchange: symbolExchange,
             isVN30,
             isVN100,
+            isHNX30,
             inWatchlist,
             tradingViewUrl: getTradingViewUrl(symbolExchange, symbol)
         };
@@ -243,8 +223,25 @@ function getSymbols(exchange) {
         return vn100List.map(s => createSymbol(s, 'HOSE'));
     }
 
+    if (exchange === 'HNX30') {
+        return hnx30List.map(s => createSymbol(s, 'HNX'));
+    }
+
     if (exchange === 'WATCHLIST') {
         return Array.from(watchlistSymbols).map(s => createSymbol(s));
+    }
+
+    if (exchange === 'ALL' || exchange === 'POTENTIAL') {
+        const allSymbols = new Set([
+            ...Array.from(watchlistSymbols),
+            ...vn30List,
+            ...vn100List,
+            ...hnx30List
+        ]);
+
+        return Array.from(allSymbols).map(s =>
+            createSymbol(s, hnx30List.includes(s) ? 'HNX' : 'HOSE')
+        );
     }
 
     if (exchange === 'HOSE' || exchange === 'HNX') {
@@ -254,88 +251,6 @@ function getSymbols(exchange) {
     }
 
     return [];
-}
-
-/**
- * Fetch stock price for a single symbol using Python vnstock script
- * 
- * @param {string} symbol - Stock symbol
- * @param {boolean} forceRefresh - Force clear cache
- * @returns {Promise<Object>} Price data: { price, changePercent }
- */
-async function fetchStockPrice(symbol, forceRefresh = false) {
-    // Clear cache if force refresh
-    if (forceRefresh) {
-        console.log(`🔄 Force refresh - clearing cache for ${symbol}`);
-        delete priceCache.data[symbol];
-    }
-
-    // Check cache
-    const now = Date.now();
-    if (!forceRefresh && now - priceCache.timestamp < priceCache.ttl && priceCache.data[symbol]) {
-        console.log(`📦 Using cached price for ${symbol}`);
-        return priceCache.data[symbol];
-    }
-
-    return new Promise((resolve, reject) => {
-        const args = [FETCH_PRICES_SCRIPT, symbol];
-        console.log(`🐍 Fetching price for ${symbol}...`);
-
-        const pythonProcess = spawn(PYTHON_VENV, args);
-
-        let stdout = '';
-        let stderr = '';
-
-        pythonProcess.stdout.on('data', (data) => {
-            stdout += data.toString();
-        });
-
-        pythonProcess.stderr.on('data', (data) => {
-            const line = data.toString().trim();
-            if (line) {
-                console.log(line); // Real-time progress logging
-            }
-            stderr += data.toString();
-        });
-
-        pythonProcess.on('close', (code) => {
-            if (code !== 0) {
-                console.error(`❌ Python script failed for ${symbol} with code:`, code);
-                console.error('stderr:', stderr);
-                return reject(new Error(`Python script failed with code ${code}`));
-            }
-
-            try {
-                // Parse JSON from stdout
-                const lines = stdout.split('\n');
-                const jsonLine = lines.find(line => line.trim().startsWith('{'));
-
-                if (!jsonLine) {
-                    console.error(`❌ No JSON output for ${symbol}`);
-                    console.error('stdout:', stdout);
-                    return resolve({ price: null, changePercent: null, error: 'No data' });
-                }
-
-                const results = JSON.parse(jsonLine);
-                const priceData = results[symbol] || { price: null, changePercent: null, error: 'Symbol not found' };
-
-                // Update cache
-                priceCache.data[symbol] = priceData;
-                priceCache.timestamp = now;
-
-                console.log(`✅ Fetched price for ${symbol}: ${priceData.price}`);
-                resolve(priceData);
-            } catch (error) {
-                console.error(`❌ Error parsing Python output for ${symbol}:`, error.message);
-                reject(error);
-            }
-        });
-
-        pythonProcess.on('error', (error) => {
-            console.error(`❌ Failed to start Python process for ${symbol}:`, error);
-            reject(error);
-        });
-    });
 }
 
 /**
@@ -449,6 +364,7 @@ app.listen(PORT, () => {
     console.log('━'.repeat(50));
     console.log(`🚀 Server running at http://localhost:${PORT}`);
     console.log(`📊 VN30 symbols loaded: ${vn30List.length}`);
+    console.log(`📊 HNX30 symbols loaded: ${hnx30List.length}`);
     console.log(`📊 VN100 symbols loaded: ${vn100List.length}`);
     console.log('━'.repeat(50));
 });

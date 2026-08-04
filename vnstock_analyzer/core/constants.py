@@ -2,6 +2,44 @@
 Constants and thresholds for stock scoring system
 """
 
+# ============================================================================
+# VIETNAMESE STOCK MARKET COLOR SCHEME
+# ============================================================================
+# Theo quy ước thị trường chứng khoán Việt Nam:
+# - Tím (Purple): Tăng kịch trần / Rất tốt
+# - Xanh lá (Green): Tăng / Tốt  
+# - Vàng (Yellow): Tham chiếu / Trung tính
+# - Đỏ (Red): Giảm / Xấu
+# - Xanh lơ (Cyan): Giảm kịch sàn / Rất xấu
+# ============================================================================
+
+VN_COLORS = {
+    'CEILING': 'purple',        # Tím - Tăng kịch trần / Excellent
+    'UP': 'success',            # Xanh lá - Tăng / Good (Vuetify: success = green)
+    'REFERENCE': 'warning',     # Vàng - Tham chiếu / Neutral (Vuetify: warning = yellow/amber)
+    'DOWN': 'error',            # Đỏ - Giảm / Bad (Vuetify: error = red)
+    'FLOOR': 'cyan',            # Xanh lơ - Giảm kịch sàn / Very Bad
+    'NEUTRAL': 'grey'           # Xám - Không xác định
+}
+
+# Icon set theo Material Design Icons (mdi)
+VN_ICONS = {
+    'EXCELLENT': 'mdi-star-circle',           # Xuất sắc - Ngôi sao
+    'VERY_STRONG_UP': 'mdi-arrow-up-bold-circle',  # Tăng rất mạnh
+    'STRONG_UP': 'mdi-arrow-up-bold',         # Tăng mạnh
+    'UP': 'mdi-arrow-up',                     # Tăng
+    'NEUTRAL': 'mdi-minus-circle',            # Trung tính
+    'DOWN': 'mdi-arrow-down',                 # Giảm
+    'STRONG_DOWN': 'mdi-arrow-down-bold',     # Giảm mạnh
+    'VERY_STRONG_DOWN': 'mdi-arrow-down-bold-circle',  # Giảm rất mạnh
+    'EXPAND': 'mdi-arrow-expand-all',         # Xoè
+    'CONTRACT': 'mdi-arrow-collapse-all',     # Co lại
+    'ALERT': 'mdi-alert-circle',              # Cảnh báo
+    'STAR': 'mdi-star-circle',                # Ngôi sao (Golden Cross)
+    'TREND_UP': 'mdi-trending-up',            # Xu hướng tăng
+    'TREND_DOWN': 'mdi-trending-down'         # Xu hướng giảm
+}
+
 # Status-based evaluation system (using English labels as requested)
 STATUS_LEVELS = {
     'EXCELLENT': {'icon': '🔥', 'label': 'EXCELLENT', 'weight': 1.0},
@@ -30,22 +68,6 @@ WEIGHTS = {
 }
 
 # Tier thresholds and labels
-TIERS = {
-    'S': (85, 100),
-    'A': (70, 85), 
-    'B': (55, 70), 
-    'C': (40, 55),  
-    'D': (0, 40)
-}
-
-TIER_LABELS = {
-    'S': '🏆 CHIẾN THẦN',
-    'A': '⭐ RẤT TỐT',
-    'B': '✅ TỐT',
-    'C': '⚠️  TRUNG BÌNH',
-    'D': '❌ YẾU'
-}
-
 TIER_RECOMMENDATIONS = {
     'S': 'MUA MẠNH - Tiềm năng bứt phá rất cao',
     'A': 'MUA - Cổ phiếu chất lượng cao',
@@ -96,161 +118,3 @@ ROA_RANGES = {
     'good': 5
 }
 
-EPS_RANGES = {
-    'high': 3000,
-    'good': 1000
-}
-
-DEBT_EQUITY_RANGES = {
-    'very_low': 0.5,
-    'reasonable': 1,
-    'high': 2
-}
-
-CURRENT_RATIO_RANGES = {
-    'good': 1.5,
-    'acceptable': 1
-}
-
-# Liquidity thresholds
-VOLUME_RANGES = {
-    'very_high': 1_000_000,
-    'high': 500_000,
-    'acceptable': 200_000
-}
-
-VOLATILITY_RANGES = {
-    'reasonable': (1, 3),
-    'medium': (3, 5)
-}
-
-# Technical analysis sub-weights
-TECHNICAL_WEIGHTS = {
-    'ma_trend': 10,
-    'rsi': 5,
-    'volume': 10
-}
-
-# Fundamental analysis sub-weights
-FUNDAMENTAL_WEIGHTS = {
-    'valuation': 10,
-    'profitability': 10,
-    'financial_health': 5
-}
-
-# Sentiment analysis sub-weights
-SENTIMENT_WEIGHTS = {
-    'insider': 10,
-    'foreign': 5,
-    'news': 5
-}
-
-# Liquidity analysis sub-weights
-LIQUIDITY_WEIGHTS = {
-    'volume': 10,
-    'volatility': 5
-}
-
-# Industry analysis sub-weights
-INDUSTRY_WEIGHTS = {
-    'relative_strength': 10,
-    'market_position': 5
-}
-
-
-# Helper functions for status-based evaluation
-def calculate_component_score(criteria):
-    """
-    Calculate component score based on status distribution
-    
-    Args:
-        criteria: Dict of {criterion_name: {'status': 'GOOD', 'reason': '...'}}
-        
-    Returns:
-        float: Score 0-1 representing quality
-    """
-    if not criteria:
-        return 0.0
-    
-    total_weight = 0.0
-    total_criteria = 0
-    
-    for criterion_data in criteria.values():
-        status = criterion_data.get('status') if isinstance(criterion_data, dict) else criterion_data
-        weight = STATUS_LEVELS.get(status, {}).get('weight')
-        if weight is not None:  # Exclude NA
-            total_weight += weight
-            total_criteria += 1
-    
-    return total_weight / total_criteria if total_criteria > 0 else 0.0
-
-
-def calculate_overall_tier(component_scores, weights=None):
-    """
-    Calculate overall tier based on weighted component scores
-    
-    Args:
-        component_scores: Dict of {component: score} where score is 0-1
-        weights: Dict of {component: weight} (optional, uses COMPONENT_WEIGHTS if not provided)
-        
-    Returns:
-        tuple: (tier, tier_label)
-    """
-    if weights is None:
-        weights = COMPONENT_WEIGHTS
-    
-    weighted_score = sum(
-        score * weights.get(component, 0)
-        for component, score in component_scores.items()
-    )
-    
-    # Convert to percentage
-    percentage = weighted_score * 100
-    
-    # Determine tier
-    for tier, (min_score, max_score) in TIERS.items():
-        if min_score <= percentage <= max_score:
-            return tier, TIER_LABELS[tier]
-    
-    # Fallback
-    return 'D', TIER_LABELS['D']
-
-
-def count_criteria_by_status(criteria_dict):
-    """
-    Count criteria by status level
-    
-    Args:
-        criteria_dict: Dict of {criterion_name: {'status': '...', ...}}
-        
-    Returns:
-        dict: Status counts
-    """
-    counts = {
-        'total': 0,
-        'excellent': 0,
-        'good': 0,
-        'acceptable': 0,
-        'warning': 0,
-        'poor': 0,
-        'na': 0
-    }
-    
-    for criterion in criteria_dict.values():
-        status = criterion.get('status', 'NA')
-        counts['total'] += 1
-        
-        if status == 'EXCELLENT':
-            counts['excellent'] += 1
-        elif status == 'GOOD':
-            counts['good'] += 1
-        elif status == 'ACCEPTABLE':
-            counts['acceptable'] += 1
-        elif status == 'WARNING':
-            counts['warning'] += 1
-        elif status == 'POOR':
-            counts['poor'] += 1
-        elif status == 'NA':
-            counts['na'] += 1
-    
-    return counts

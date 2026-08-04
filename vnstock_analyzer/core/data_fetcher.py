@@ -5,7 +5,8 @@ Data fetcher module - Fetch và cache data từ vnstock API với error handling
 import sys
 import time
 from datetime import datetime, timedelta
-from vnstock import Vnstock
+# Direct import to bypass Company component error
+from vnstock.explorer.vci.quote import Quote
 
 
 class DataFetcher:
@@ -18,10 +19,24 @@ class DataFetcher:
         Args:
             symbol: Stock symbol (e.g., 'HDB', 'FPT')
             source: Data source (default: 'VCI')
+            
+        Note: Direct Quote initialization to bypass VCI Company component error
         """
         self.symbol = symbol
         self.source = source
-        self.stock = Vnstock().stock(symbol=symbol, source=source)
+        
+        # Direct initialization to avoid Company component error in VCI
+        try:
+            if source == 'VCI':
+                self.quote = Quote(symbol)
+            else:
+                # Fallback to legacy method for other sources
+                from vnstock import Vnstock
+                self.stock = Vnstock().stock(symbol=symbol, source=source)
+                self.quote = self.stock.quote
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize data fetcher for {symbol}: {e}")
+        
         self.data_cache = {}
         
         # Retry configuration
@@ -88,14 +103,14 @@ class DataFetcher:
         has_critical_data = False
         
         try:
-            # 1. Historical price data (CRITICAL - bắt buộc phải có)
+            # 1. Historical price data - Request 2 years for better EMA accuracy
             end_date = datetime.now().strftime('%Y-%m-%d')
-            start_date = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=730)).strftime('%Y-%m-%d')
             
             print(f"  ⏳ Lấy lịch sử giá ({start_date} -> {end_date})...", file=sys.stderr)
             
             history = self._retry_with_backoff(
-                self.stock.quote.history,
+                self.quote.history,
                 "Lịch sử giá",
                 start=start_date,
                 end=end_date

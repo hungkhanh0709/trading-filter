@@ -72,6 +72,34 @@
         "/^/Users/khanhto/Documents/Projects/trading/trading-filter/\\.venv/bin/python -c \"from vnstock import Vnstock; stock = Vnstock\\(\\)\\.stock\\(symbol='VNM', source='VCI'\\); df = stock\\.quote\\.history\\(start='2026-01-20', end='2026-02-02'\\); print\\(df\\.tail\\(\\)\\)\" 2>&1$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^cd /Users/khanhto/Documents/Projects/trading/trading-filter && \\.venv/bin/python -c \"\ntry:\n    from vnstock_analyzer import StockScorer\n    scorer = StockScorer\\('VCB'\\)\n    print\\('Import OK'\\)\n    result = scorer\\.analyze\\(\\)\n    print\\('Analysis OK'\\)\n    if 'error' in result:\n        print\\('ERROR:', result\\['error'\\]\\)\n    else:\n        print\\('Expansion color:', result\\.get\\('expansion', \\{\\}\\)\\.get\\('color'\\)\\)\n        print\\('Convergence color:', result\\.get\\('convergence', \\{\\}\\)\\.get\\('color'\\)\\)\n        print\\('Volume color:', result\\.get\\('volume_analysis', \\{\\}\\)\\.get\\('color'\\)\\)\nexcept Exception as e:\n    import traceback\n    print\\('EXCEPTION:', e\\)\n    traceback\\.print_exc\\(\\)\n\" 2>&1 \\| grep -v \"📊\\\\\\|⏳\\\\\\|✅\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd /Users/khanhto/Documents/Projects/trading/trading-filter && \\.venv/bin/python -c \"\nimport traceback\ntry:\n    from vnstock_analyzer import StockScorer\n    scorer = StockScorer\\('VCB'\\)\n    result = scorer\\.analyze\\(\\)\nexcept Exception as e:\n    traceback\\.print_exc\\(\\)\n\" 2>&1 \\| tail -20$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\.venv/bin/python scripts/analyze_stock\\.py VCB 2>&1 \\| grep -A 15 \"Traceback\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\.venv/bin/python scripts/analyze_stock\\.py VCB 2>&1 \\| grep -B5 -A10 \"name 'VN\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd /Users/khanhto/Documents/Projects/trading/trading-filter && \\.venv/bin/python -c \"\nfrom vnstock_analyzer import StockScorer\nimport logging\nlogging\\.basicConfig\\(level=logging\\.ERROR\\)\nscorer = StockScorer\\('VCB'\\)\nresult = scorer\\.analyze\\(\\)\nprint\\(result\\.get\\('error', 'OK'\\)\\)\n\" 2>&1 \\| tail -30$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\.venv/bin/python scripts/analyze_stock\\.py VCB 2>&1 \\| grep -A 30 \"FULL TRACEBACK\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\.venv/bin/python scripts/analyze_stock\\.py VCB 2>&1 \\| grep -A 40 \"FULL TRACEBACK\"$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     },
     "git.ignoreLimitWarning": true

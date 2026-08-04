@@ -15,6 +15,8 @@ Only FACTUAL data:
 - Price Position (% from MA)
 """
 
+from vnstock_analyzer.core.constants import VN_COLORS, VN_ICONS
+
 
 def format_ma_signals(df, golden_cross, death_cross, convergence, expansion, momentum, tight_convergence):
     """
@@ -56,8 +58,6 @@ def format_ma_signals(df, golden_cross, death_cross, convergence, expansion, mom
             'tooltip': (
                 f"<strong>⭐ {cross.get('label')}</strong><br>"
                 f"Loại: {cross.get('type')}<br>"
-                f"Độ uy tín: {cross.get('score')}/10<br>"
-                f"<em style='color: #999; font-size: 0.85em;'>Chỉ là thông tin, không phải lời khuyên</em>"
             )
         })
     
@@ -139,16 +139,16 @@ def format_ma_signals(df, golden_cross, death_cross, convergence, expansion, mom
     ma50_slope = momentum['ma50']['slope']
     alignment = momentum['alignment']
     
-    # Determine momentum icon color
+    # Determine momentum icon color - VN STOCK COLORS
     if alignment in ['BULLISH_ALIGNED', 'MOSTLY_BULLISH']:
-        momentum_color = 'success'
-        momentum_icon = 'mdi-speedometer'
+        momentum_color = VN_COLORS['UP']  # Green - Bullish
+        momentum_icon = VN_ICONS['TREND_UP']
     elif alignment in ['BEARISH_ALIGNED', 'MOSTLY_BEARISH']:
-        momentum_color = 'error'
-        momentum_icon = 'mdi-speedometer-slow'
+        momentum_color = VN_COLORS['DOWN']  # Red - Bearish
+        momentum_icon = VN_ICONS['TREND_DOWN']
     else:
-        momentum_color = 'grey'
-        momentum_icon = 'mdi-speedometer-medium'
+        momentum_color = VN_COLORS['NEUTRAL']  # Grey - Neutral
+        momentum_icon = VN_ICONS['NEUTRAL']
     
     signals.append({
         'type': 'momentum',
@@ -172,14 +172,16 @@ def format_ma_signals(df, golden_cross, death_cross, convergence, expansion, mom
     })
     
     # 6. PRICE POSITION - Factual data
-    ma50 = latest['MA50']
-    ma20 = latest['MA20']
     ma10 = latest['MA10']
+    ma20 = latest['MA20']
+    ma50 = latest['MA50']
+    ma200 = latest.get('MA200', 0)
     
     if ma50 > 0:
         dist_ma50 = (price - ma50) / ma50 * 100
         dist_ma20 = (price - ma20) / ma20 * 100 if ma20 > 0 else 0
         dist_ma10 = (price - ma10) / ma10 * 100 if ma10 > 0 else 0
+        dist_ma200 = (price - ma200) / ma200 * 100 if ma200 > 0 else 0
         
         signals.append({
             'type': 'price_position',
@@ -189,14 +191,15 @@ def format_ma_signals(df, golden_cross, death_cross, convergence, expansion, mom
             'data': {
                 'vs_ma10': dist_ma10,
                 'vs_ma20': dist_ma20,
-                'vs_ma50': dist_ma50
+                'vs_ma50': dist_ma50,
+                'vs_ma200': dist_ma200
             },
             'tooltip': (
                 f"<strong>📍 Vị trí giá</strong><br>"
                 f"vs MA10: {dist_ma10:+.1f}%<br>"
                 f"vs MA20: {dist_ma20:+.1f}%<br>"
                 f"vs MA50: {dist_ma50:+.1f}%<br>"
-                f"<em style='color: #999; font-size: 0.85em;'>Khoảng cách - chỉ là thông tin</em>"
+                f"vs MA200: {dist_ma200:+.1f}%<br>"
             )
         })
     

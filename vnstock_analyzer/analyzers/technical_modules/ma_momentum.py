@@ -75,12 +75,35 @@ def analyze_momentum(df):
         alignment = 'MIXED'
         summary = f"➕ MA hướng hỗn hợp - Thị trường sideway/tích luỹ"
     
+    # UI metadata
+    color_map = {
+        'BULLISH_ALIGNED': 'success',
+        'MOSTLY_BULLISH': 'light-green',
+        'NEUTRAL': 'warning',
+        'MOSTLY_BEARISH': 'orange',
+        'BEARISH_ALIGNED': 'error',
+        'MIXED': 'grey'
+    }
+    
+    tooltip = (
+        f"<strong>📊 Momentum (%/ngày)</strong><br>"
+        f"MA10: {ma10_analysis['slope']:+.2f}<br>"
+        f"MA20: {ma20_analysis['slope']:+.2f}<br>"
+        f"MA50: {ma50_analysis['slope']:+.2f}<br>"
+        f"Alignment: {alignment}<br>"
+    )
+    
     return {
         'ma10': ma10_analysis,
         'ma20': ma20_analysis,
         'ma50': ma50_analysis,
         'alignment': alignment,
-        'summary': summary
+        'summary': summary,
+        # UI metadata
+        'icon': 'mdi-speedometer',
+        'color': color_map.get(alignment, 'grey'),
+        'label': f'Momentum {alignment}',
+        'tooltip': tooltip
     }
 
 
