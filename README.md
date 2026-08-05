@@ -122,6 +122,63 @@ Phân tích kỹ thuật cho một mã
 - Hoặc click "Phân tích" trên từng mã
 - Kết quả: MA analysis, convergence, momentum
 
+## 🔮 Oracle V2 / POTENTIAL
+
+Tab `POTENTIAL` là decision board 10 phiên sử dụng panel lịch sử của toàn bộ
+universe, không bắt từng cổ phiếu tự học từ 250 phiên riêng lẻ. V2 dùng market
+proxy nội bộ, breadth, relative strength, liquidity rank và các đặc trưng kỹ
+thuật để tìm analog xuyên mã.
+
+Oracle V2 trả về:
+
+- Dự báo hai chiều `BULLISH`, `NEUTRAL`, `BEARISH` với P(Up)/P(Down).
+- Expected return, expected excess return và dải q10/q50/q90.
+- Xác suất vượt market proxy và thuộc top 20% universe.
+- Relative-rank percentile trên cùng một snapshot toàn thị trường.
+- Analog xuyên mã, evidence và số lượng mã đóng góp mẫu.
+- Risk/profit barriers chỉ dành cho kế hoạch Long; chúng không phải giá dự báo.
+- Global model health tách riêng chất lượng direction và ranking.
+
+Tab tải `/api/oracle/universe` từ dữ liệu panel cục bộ để hiển thị ranking ngay,
+không phải chờ fetch tuần tự 130 mã. Phân tích kỹ thuật chi tiết tiếp tục được
+làm giàu ở nền. Bộ lọc mặc định chỉ hiện `LONG_SETUP`/`RANK_ONLY` từ percentile
+80 trở lên; nút `Mở rộng Watch` thêm `WATCH_LONG` từ percentile 65 trở lên.
+
+Các dự báo và OHLCV đầu vào được lưu trong `data/oracle.db` để có thể audit và
+không mất sau khi restart. File runtime này không được commit vào Git.
+
+Chạy kiểm định panel và xem phân phối toàn universe:
+
+```bash
+.venv/bin/python scripts/backtest_oracle_v2.py
+```
+
+Backtest V1 cho một mã vẫn còn để audit:
+
+```bash
+.venv/bin/python scripts/backtest_oracle.py FPT
+```
+
+Quy tắc chống leakage của V2:
+
+- Feature tại ngày `t` chỉ dùng dữ liệu đến hết ngày `t`.
+- Kết quả dùng các phiên `t+1..t+horizon`.
+- Một analog chỉ được vào training khi `label_end_date <= as_of`.
+- Walk-forward validation theo ngày, không chia ngẫu nhiên symbol-date.
+- Relative rank của mọi mã được tính trên cùng snapshot.
+- Walk-forward không random shuffle dữ liệu thời gian.
+
+Ý nghĩa model health:
+
+- `PASS`: direction và ranking đều vượt tiêu chuẩn ngoài mẫu.
+- `RANK_PASS`: relative ranking có edge, xác suất hướng chưa được calibration;
+  chỉ hiển thị `RANK_ONLY`, không tuyên bố `LONG_SETUP`.
+- `REJECT`: chưa được phép dùng làm tín hiệu giao dịch.
+
+Giới hạn hiện tại: market proxy là trung vị của universe, chưa phải VN-Index
+chính thức; chưa có ngành point-in-time, corporate actions và mô phỏng chi phí
+khớp lệnh. Forecast không phải cam kết lợi nhuận.
+
 ## 🎨 UI Features
 
 - **Stats cards:** Ngày, Tổng mã, VN30, VN100

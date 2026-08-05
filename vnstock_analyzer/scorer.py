@@ -10,6 +10,9 @@ from .analyzers import (
     TechnicalAnalyzer,
 )
 from .utils import get_logger, LogLevel
+from .oracle import OracleForecaster
+from .oracle_store import OracleStore
+from .oracle_v2 import MODEL_VERSION as ORACLE_V2_VERSION, PanelOracle
 
 
 class StockScorer:
@@ -91,6 +94,34 @@ class StockScorer:
         try:
             technical = TechnicalAnalyzer(df_history)
             tech_result = technical.get_analysis()
+            oracle_v1 = OracleForecaster(df_history).forecast()
+            oracle = oracle_v1
+
+            # V2 learns from the complete persisted market panel. V1 remains the
+            # fallback until enough symbols have accumulated in the store.
+            try:
+                store = OracleStore()
+                store.save_history(self.symbol, df_history, self.fetcher.active_source)
+                panel_model = PanelOracle(store.load_panel_history())
+                if not panel_model.panel.empty:
+                    panel_date = panel_model.panel["trading_date"].max().strftime("%Y-%m-%d")
+                    symbol_bucket = (panel_model.symbol_count // 10) * 10
+                    health_key = f"{panel_date}-n{symbol_bucket}"
+                    model_health = store.load_model_health(ORACLE_V2_VERSION, health_key)
+                    if model_health is None and panel_model.symbol_count >= panel_model.min_symbols:
+                        model_health = panel_model.validate()
+                        store.save_model_health(ORACLE_V2_VERSION, health_key, model_health)
+                    oracle_v2 = panel_model.forecast_symbol(
+                        self.symbol,
+                        model_health=model_health or {"status": "UNVALIDATED"},
+                    )
+                    if oracle_v2.get("status") == "READY":
+                        oracle = oracle_v2
+                    else:
+                        oracle = {**oracle_v2, "fallback_v1": oracle_v1}
+                store.save_forecast(self.symbol, oracle)
+            except Exception as storage_error:
+                self.logger.warning(f"Oracle storage unavailable: {storage_error}")
             
             # Extract MA analysis - FLATTENED STRUCTURE
             ma_analysis = tech_result.get('ma_analysis', {})
@@ -135,6 +166,7 @@ class StockScorer:
                 
                 # Volume analysis (note: volume field contains analysis data, not raw number)
                 'volume_analysis': ma_analysis.get('volume', {}),
+                'oracle': oracle,
             }
             
             return result

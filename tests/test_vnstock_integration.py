@@ -105,6 +105,7 @@ class StockScorerContractTests(unittest.TestCase):
                 "momentum",
                 "price_position",
                 "volume_analysis",
+                "oracle",
             },
             set(result) - {"symbol", "analyzed_at"},
         )

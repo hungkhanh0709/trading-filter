@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,12 +23,14 @@ const HNX30_FILE = path.join(__dirname, 'data', 'hnx30.json');
 const PYTHON_VENV = path.join(__dirname, '.venv', 'bin', 'python');
 const FETCH_PRICES_SCRIPT = path.join(__dirname, 'scripts', 'fetch_prices.py');
 const ANALYZE_STOCK_SCRIPT = path.join(__dirname, 'scripts', 'analyze_stock.py');
+const ORACLE_UNIVERSE_SCRIPT = path.join(__dirname, 'scripts', 'forecast_oracle_universe.py');
 
 // Analysis cache - 180 minutes TTL
 let analysisCache = {
     data: {},
     ttl: 180 * 60 * 1000
 };
+const ANALYSIS_CACHE_SCHEMA_VERSION = 2;
 
 // Middleware
 app.use(cors());
@@ -108,7 +110,7 @@ app.get('/api/symbols', async (req, res) => {
 
 /**
  * GET /api/analyze/:symbol
- * Analyze a single stock with caching (60min TTL)
+ * Analyze a single stock with caching (180min TTL)
  * 
  * Query params:
  *   - force: "1" to force refresh analysis
@@ -122,7 +124,10 @@ app.get('/api/analyze/:symbol', async (req, res) => {
         const now = Date.now();
         if (!forceRefresh && analysisCache.data[symbol]) {
             const cached = analysisCache.data[symbol];
-            if (now - cached.timestamp < analysisCache.ttl) {
+            if (
+                cached.schemaVersion === ANALYSIS_CACHE_SCHEMA_VERSION &&
+                now - cached.timestamp < analysisCache.ttl
+            ) {
                 console.log(`📦 Using cached analysis for ${symbol}`);
                 return res.json({
                     success: true,
@@ -147,7 +152,8 @@ app.get('/api/analyze/:symbol', async (req, res) => {
         // Cache result
         analysisCache.data[symbol] = {
             result: result,
-            timestamp: now
+            timestamp: now,
+            schemaVersion: ANALYSIS_CACHE_SCHEMA_VERSION
         };
 
         res.json({
@@ -162,6 +168,27 @@ app.get('/api/analyze/:symbol', async (req, res) => {
             error: error.message
         });
     }
+});
+
+/** GET /api/oracle/universe - fast panel snapshot; no remote market fetch. */
+app.get('/api/oracle/universe', (req, res) => {
+    execFile(
+        PYTHON_VENV,
+        [ORACLE_UNIVERSE_SCRIPT],
+        { maxBuffer: 10 * 1024 * 1024 },
+        (error, stdout, stderr) => {
+            if (error) {
+                console.error('❌ Oracle universe failed:', stderr || error.message);
+                return res.status(500).json({ success: false, error: 'Oracle universe unavailable' });
+            }
+            try {
+                res.json({ success: true, data: JSON.parse(stdout.trim()) });
+            } catch (parseError) {
+                console.error('❌ Invalid Oracle universe JSON:', parseError.message);
+                res.status(500).json({ success: false, error: 'Invalid Oracle universe output' });
+            }
+        }
+    );
 });
 
 /**

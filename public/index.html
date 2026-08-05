@@ -99,6 +99,21 @@
             font-weight: 600;
         }
 
+        .oracle-plan {
+            min-width: 150px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.78rem;
+            line-height: 1.45;
+        }
+
+        .oracle-plan .stop {
+            color: #D32F2F;
+        }
+
+        .oracle-plan .target {
+            color: #2E7D32;
+        }
+
         /* HIGH Warning Pulse Animation */
         .pulse-animation {
             animation: pulse 1.5s ease-in-out infinite;
@@ -135,9 +150,9 @@
                         Phân tích: {{ analyzingProgress.completed }}/{{ analyzingProgress.total }}
                     </span>
                 </div>
-                <v-btn icon="mdi-chart-box-outline" @click="autoAnalyzeAll" :loading="autoAnalyzing" variant="text"
+                <v-btn icon="mdi-chart-box-outline" @click="startAnalysisRun(false)" :loading="autoAnalyzing" variant="text"
                     title="Phân tích tất cả"></v-btn>
-                <v-btn icon="mdi-refresh" @click="loadData" :loading="loading" variant="text" title="Reload"></v-btn>
+                <v-btn icon="mdi-refresh" @click="startAnalysisRun(true)" :loading="loading" variant="text" title="Reload"></v-btn>
             </v-app-bar>
 
             <v-main>
@@ -163,8 +178,23 @@
                                 <v-alert v-if="selectedExchange === 'POTENTIAL'" type="info" variant="tonal"
                                     class="mx-4 mb-4" density="compact">
                                     <div style="font-weight: 600;">
-                                        {{ potentialStats.qualified }}/{{ potentialStats.analyzed }} mã đạt bộ lọc
-                                        "Tiềm năng"
+                                        🔮 Oracle 10 phiên: {{ potentialStats.qualified }}/{{ potentialStats.analyzed }}
+                                        mã có lợi thế thống kê
+                                    </div>
+                                    <div style="font-size: 0.82rem; margin-top: 3px;">
+                                        Xác suất từ các mẫu quá khứ tương đồng; dự báo không phải cam kết lợi nhuận.
+                                        Relative rank và dự báo hướng là hai kết quả độc lập.
+                                    </div>
+                                    <v-btn-toggle v-model="potentialView" mandatory density="compact" class="mt-2"
+                                        color="primary" variant="outlined" divided>
+                                        <v-btn value="TOP" size="small">Top cơ hội · P80+</v-btn>
+                                        <v-btn value="WATCH" size="small">Mở rộng Watch · P65+</v-btn>
+                                    </v-btn-toggle>
+                                    <div v-if="oracleDirectionSummary.length" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
+                                        <v-chip v-for="direction in oracleDirectionSummary" :key="direction.key"
+                                            size="small" :color="direction.color" variant="tonal">
+                                            {{ direction.label }}: {{ direction.count }}
+                                        </v-chip>
                                     </div>
                                     <div v-if="potentialStageSummary.length" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
                                         <v-chip v-for="stage in potentialStageSummary" :key="stage.key" size="small"
@@ -173,6 +203,20 @@
                                         </v-chip>
                                     </div>
                                 </v-alert>
+                            </template>
+
+                            <template v-slot:no-data>
+                                <div class="pa-8 text-center" style="color: #666;">
+                                    <v-progress-circular v-if="autoAnalyzing" indeterminate size="24" color="primary" class="mr-2"></v-progress-circular>
+                                    <span v-if="autoAnalyzing">
+                                        Đang phân tích {{ analyzingProgress.completed }}/{{ analyzingProgress.total }} mã;
+                                        cơ hội đạt điều kiện sẽ xuất hiện tại đây.
+                                    </span>
+                                    <span v-else-if="selectedExchange === 'POTENTIAL'">
+                                        Không có mã khớp tìm kiếm/bộ lọc {{ potentialView === 'TOP' ? 'Top P80+' : 'Watch P65+' }}.
+                                    </span>
+                                    <span v-else>Không có dữ liệu.</span>
+                                </div>
                             </template>
 
                             <!-- Custom Header for Price Column with Stats -->
@@ -217,6 +261,59 @@
                                         </v-chip>
                                     </template>
                                     <div v-html="item.potentialSignal.tooltip"></div>
+                                </v-tooltip>
+                                <span v-else style="color: #999;">-</span>
+                            </template>
+
+                            <template v-slot:item.forecast="{ item }">
+                                <v-tooltip v-if="getOraclePrimary(item)" location="top">
+                                    <template v-slot:activator="{ props }">
+                                        <v-chip v-bind="props" :color="getOracleDecisionColor(getOraclePrimary(item).decision)"
+                                            size="small" class="text-white font-weight-bold">
+                                            {{ getDirectionIcon(getOraclePrimary(item).direction) }}
+                                            {{ getOraclePrimary(item).direction }}
+                                        </v-chip>
+                                    </template>
+                                    <div v-html="getOracleTooltip(item)"></div>
+                                </v-tooltip>
+                                <span v-else style="color: #999;">-</span>
+                            </template>
+
+                            <template v-slot:item.trade_plan="{ item }">
+                                <div v-if="getOraclePrimary(item)" class="oracle-plan">
+                                    <v-chip size="x-small" variant="tonal" class="mb-1"
+                                        :color="getOracleDecisionColor(getOraclePrimary(item).decision)">
+                                        {{ getOraclePrimary(item).decision }}
+                                    </v-chip>
+                                    <template v-if="getOraclePrimary(item).risk_plan">
+                                        <div><small>Barriers tham chiếu, không phải dự báo:</small></div>
+                                        <div>Vào: {{ formatPrice(getOraclePrimary(item).risk_plan.entry.low) }}–{{ formatPrice(getOraclePrimary(item).risk_plan.entry.high) }}</div>
+                                        <div class="stop">Risk: {{ formatPrice(getOraclePrimary(item).risk_plan.risk_barrier) }} (−{{ getOraclePrimary(item).risk_plan.risk_pct }}%)</div>
+                                        <div class="target">Profit: {{ formatPrice(getOraclePrimary(item).risk_plan.profit_barrier) }}</div>
+                                    </template>
+                                </div>
+                                <span v-else style="color: #999;">-</span>
+                            </template>
+
+                            <template v-slot:item.edge="{ item }">
+                                <v-chip v-if="getOraclePrimary(item)" size="small"
+                                    :color="getOraclePrimary(item).expected_excess_return_pct > 0 ? 'success' : 'error'" variant="tonal">
+                                    {{ formatSigned(getOraclePrimary(item).expected_excess_return_pct) }}% vs TT
+                                </v-chip>
+                                <span v-else style="color: #999;">-</span>
+                            </template>
+
+                            <template v-slot:item.confidence="{ item }">
+                                <v-tooltip v-if="getOraclePrimary(item)" location="top">
+                                    <template v-slot:activator="{ props }">
+                                        <v-chip v-bind="props" size="small" variant="outlined"
+                                            :color="getOracleHealth(item)?.ranking_status === 'PASS' ? 'success' : getOracleHealth(item)?.status === 'REJECT' ? 'error' : 'warning'">
+                                            {{ getOracleHealth(item)?.ranking_status || getOracleHealth(item)?.status || 'UNVALIDATED' }} · {{ getOraclePrimary(item).evidence }}
+                                        </v-chip>
+                                    </template>
+                                    <div>{{ getOraclePrimary(item).analog_count }} analog từ {{ getOraclePrimary(item).analog_symbol_count }} mã</div>
+                                    <div>Effective n: {{ getOraclePrimary(item).effective_sample_size }} · Distance: {{ getOraclePrimary(item).median_distance }}</div>
+                                    <div v-for="reason in (getOracleHealth(item)?.reasons || [])" :key="reason">• {{ reason }}</div>
                                 </v-tooltip>
                                 <span v-else style="color: #999;">-</span>
                             </template>
@@ -408,6 +505,8 @@
                     analyzingProgress: { completed: 0, total: 0 },
                     maxConcurrent: 5,
                     autoAnalyzing: false,
+                    analysisRunId: 0,
+                    potentialView: 'TOP',
                     // Table sorting state
                     sortBy: [] // Vuetify v-model:sort-by binding
                 };
@@ -419,7 +518,16 @@
                         return symbols;
                     }
 
-                    return symbols.filter(symbol => symbol.potentialSignal?.isPotential);
+                    const decisions = this.potentialView === 'TOP'
+                        ? new Set(['LONG_SETUP', 'RANK_ONLY'])
+                        : new Set(['LONG_SETUP', 'RANK_ONLY', 'WATCH_LONG']);
+                    const minimumRank = this.potentialView === 'TOP' ? 80 : 65;
+                    return symbols.filter(symbol => {
+                        const forecast = symbol.analysis?.oracle?.forecast;
+                        return forecast &&
+                            decisions.has(forecast.decision) &&
+                            forecast.relative_rank_percentile >= minimumRank;
+                    });
                 },
                 // Sorted symbols
                 sortedSymbols() {
@@ -473,7 +581,7 @@
                 potentialStats() {
                     const symbols = this.matrixData?.symbols || [];
                     const analyzed = symbols.filter(symbol => !!symbol.analysis).length;
-                    const qualified = symbols.filter(symbol => symbol.potentialSignal?.isPotential).length;
+                    const qualified = this.displayedSymbols.length;
 
                     return {
                         analyzed,
@@ -490,7 +598,7 @@
 
                     const counts = new Map(stageMeta.map(stage => [stage.key, 0]));
 
-                    (this.matrixData?.symbols || []).forEach(symbol => {
+                    this.displayedSymbols.forEach(symbol => {
                         const stage = symbol.potentialSignal?.stage;
                         if (symbol.potentialSignal?.isPotential && counts.has(stage)) {
                             counts.set(stage, counts.get(stage) + 1);
@@ -500,6 +608,20 @@
                     return stageMeta
                         .map(stage => ({ ...stage, count: counts.get(stage.key) || 0 }))
                         .filter(stage => stage.count > 0);
+                },
+                oracleDirectionSummary() {
+                    const meta = [
+                        { key: 'BULLISH', label: '▲ Bullish', color: 'success' },
+                        { key: 'NEUTRAL', label: '◆ Neutral', color: 'grey' },
+                        { key: 'BEARISH', label: '▼ Bearish', color: 'error' }
+                    ];
+                    const counts = new Map(meta.map(value => [value.key, 0]));
+                    this.displayedSymbols.forEach(symbol => {
+                        const direction = symbol.analysis?.oracle?.forecast?.direction;
+                        if (counts.has(direction)) counts.set(direction, counts.get(direction) + 1);
+                    });
+                    return meta.map(value => ({ ...value, count: counts.get(value.key) || 0 }))
+                        .filter(value => value.count > 0);
                 },
                 matrixHeaders() {
                     const headers = [
@@ -518,11 +640,39 @@
                             width: '100px'
                         },
                         {
-                            title: 'Potential',
+                            title: 'Relative Rank',
                             key: 'potential',
                             align: 'center',
                             sortable: true,
                             width: '140px'
+                        },
+                        {
+                            title: 'Forecast 10D',
+                            key: 'forecast',
+                            align: 'center',
+                            sortable: true,
+                            width: '125px'
+                        },
+                        {
+                            title: 'Decision / Risk Plan',
+                            key: 'trade_plan',
+                            align: 'start',
+                            sortable: false,
+                            width: '175px'
+                        },
+                        {
+                            title: 'Excess 10D',
+                            key: 'edge',
+                            align: 'center',
+                            sortable: true,
+                            width: '105px'
+                        },
+                        {
+                            title: 'Tin cậy',
+                            key: 'confidence',
+                            align: 'center',
+                            sortable: true,
+                            width: '105px'
                         },
                         {
                             title: 'Volume',
@@ -568,21 +718,18 @@
                         },
                     ];
 
+                    const oracleOnly = new Set(['potential', 'forecast', 'trade_plan', 'edge', 'confidence']);
                     return this.selectedExchange === 'POTENTIAL'
                         ? headers
-                        : headers.filter(header => header.key !== 'potential');
+                        : headers.filter(header => !oracleOnly.has(header.key));
                 }
             },
             mounted() {
-                this.loadData().then(() => {
-                    this.autoAnalyzeAll();
-                });
+                this.startAnalysisRun(false);
             },
             watch: {
                 selectedExchange() {
-                    this.loadData().then(() => {
-                        this.autoAnalyzeAll();
-                    });
+                    this.startAnalysisRun(false);
                 }
             },
             methods: {
@@ -660,6 +807,25 @@
                             return aEntry - bEntry;
                         },
 
+                        forecast: (a, b) => {
+                            const aProbability = this.getOraclePrimary(a)?.probability_up ?? -Infinity;
+                            const bProbability = this.getOraclePrimary(b)?.probability_up ?? -Infinity;
+                            return aProbability - bProbability;
+                        },
+
+                        edge: (a, b) => {
+                            const aEdge = this.getOraclePrimary(a)?.expected_excess_return_pct ?? -Infinity;
+                            const bEdge = this.getOraclePrimary(b)?.expected_excess_return_pct ?? -Infinity;
+                            return aEdge - bEdge;
+                        },
+
+                        confidence: (a, b) => {
+                            const rank = { A: 3, B: 2, C: 1 };
+                            const aConfidence = rank[this.getOraclePrimary(a)?.evidence] || 0;
+                            const bConfidence = rank[this.getOraclePrimary(b)?.evidence] || 0;
+                            return aConfidence - bConfidence;
+                        },
+
                         // Price vs MA: by distance to MA50
                         price_vs_ma: (a, b) => {
                             const aDist = a.analysis?.price_position?.vs_ma50 ?? -Infinity;
@@ -731,6 +897,51 @@
                     if (change > 0) return 'change-positive';
                     if (change < 0) return 'change-negative';
                     return 'change-neutral';
+                },
+                getOraclePrimary(item) {
+                    const oracle = item?.analysis?.oracle;
+                    if (oracle?.status !== 'READY') return null;
+                    return oracle.forecast || null;
+                },
+                getOracleHealth(item) {
+                    return item?.analysis?.oracle?.model_health || null;
+                },
+                getOracleDecisionColor(decision) {
+                    if (decision === 'LONG_SETUP') return 'success';
+                    if (['RANK_ONLY', 'WATCH_LONG'].includes(decision)) return 'warning';
+                    if (decision === 'AVOID_LONG') return 'error';
+                    return 'grey';
+                },
+                getDirectionIcon(direction) {
+                    return direction === 'BULLISH' ? '▲' : direction === 'BEARISH' ? '▼' : '◆';
+                },
+                formatPrice(value) {
+                    if (value === null || value === undefined || !Number.isFinite(Number(value))) return '-';
+                    return Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
+                },
+                formatSigned(value) {
+                    const number = Number(value);
+                    if (!Number.isFinite(number)) return '-';
+                    return `${number > 0 ? '+' : ''}${number.toFixed(2)}`;
+                },
+                getOracleTooltip(item) {
+                    const oracle = item?.analysis?.oracle;
+                    const forecast = this.getOraclePrimary(item);
+                    if (!oracle || !forecast) return '';
+                    const quantiles = forecast.return_quantiles || {};
+                    return [
+                        `<strong>🔮 ${forecast.direction} · ${forecast.decision}</strong>`,
+                        `P(Up): ${forecast.probability_up}% · P(Down): ${forecast.probability_down}%`,
+                        `P(vượt thị trường): ${forecast.probability_outperform}%`,
+                        `Expected return: ${this.formatSigned(forecast.expected_return_pct)}%`,
+                        `Expected excess: ${this.formatSigned(forecast.expected_excess_return_pct)}%`,
+                        `Dải q10/q50/q90: ${this.formatSigned(quantiles.q10)}% / ${this.formatSigned(quantiles.q50)}% / ${this.formatSigned(quantiles.q90)}%`,
+                        `Relative rank: P${forecast.relative_rank_percentile} · Evidence ${forecast.evidence}`,
+                        `Analogs: ${forecast.analog_count} từ ${forecast.analog_symbol_count} mã`,
+                        `Ranking health: ${oracle.model_health?.ranking_status || oracle.model_health?.status || 'UNVALIDATED'}`,
+                        `Direction health: ${oracle.model_health?.direction_status || 'UNVALIDATED'}`,
+                        `<br><small>Dữ liệu đến ${oracle.as_of} · ${oracle.model_version}</small>`
+                    ].join('<br>');
                 },
                 evaluatePotentialSignal(analysis) {
                     if (!analysis || analysis.error) {
@@ -959,27 +1170,88 @@
                         }
                     };
 
-                    const score = structureScore + entryScore;
-                    const isPotential =
-                        score >= 10 &&
+                    const v2Oracle = analysis.oracle;
+                    const v2Forecast = v2Oracle?.model_version?.startsWith('oracle-panel-v2')
+                        ? v2Oracle.forecast
+                        : null;
+                    if (v2Forecast) {
+                        const actionableDecisions = ['LONG_SETUP', 'RANK_ONLY', 'WATCH_LONG'];
+                        const isPotential = actionableDecisions.includes(v2Forecast.decision);
+                        const resolvedStage = stageMeta[v2Forecast.setup] ? v2Forecast.setup : null;
+                        const directionMeta = {
+                            BULLISH: { icon: 'mdi-trending-up', color: 'success', symbol: '▲' },
+                            BEARISH: { icon: 'mdi-trending-down', color: 'error', symbol: '▼' },
+                            NEUTRAL: { icon: 'mdi-swap-horizontal', color: 'grey', symbol: '◆' }
+                        }[v2Forecast.direction] || { icon: 'mdi-help', color: 'grey', symbol: '?' };
+                        const rank = v2Forecast.relative_rank_percentile;
+                        const tooltip = [
+                            `<strong>${directionMeta.symbol} ${v2Forecast.direction} · ${v2Forecast.decision}</strong>`,
+                            `Relative rank: P${rank}`,
+                            `P(Up/Down): ${v2Forecast.probability_up}% / ${v2Forecast.probability_down}%`,
+                            `P(vượt thị trường): ${v2Forecast.probability_outperform}%`,
+                            `Expected return: ${this.formatSigned(v2Forecast.expected_return_pct)}%`,
+                            `Expected excess: ${this.formatSigned(v2Forecast.expected_excess_return_pct)}%`,
+                            `Evidence: ${v2Forecast.evidence} · ${v2Forecast.analog_count} analog / ${v2Forecast.analog_symbol_count} mã`,
+                            `Ranking health: ${v2Oracle.model_health?.ranking_status || v2Oracle.model_health?.status}`,
+                            `Direction health: ${v2Oracle.model_health?.direction_status || 'UNVALIDATED'}`
+                        ].join('<br>');
+                        return {
+                            isPotential,
+                            score: rank,
+                            structureScore,
+                            entryScore,
+                            stage: resolvedStage,
+                            stagePriority: 0,
+                            matched,
+                            warnings: v2Oracle.model_health?.status === 'PASS' ? warnings : [...warnings, 'Model chưa PASS toàn phần'],
+                            badge: `${directionMeta.symbol} P${rank}`,
+                            label: `${v2Forecast.direction} · P${rank}`,
+                            color: directionMeta.color,
+                            icon: directionMeta.icon,
+                            tooltip,
+                            oracle: v2Forecast
+                        };
+                    }
+
+                    const technicalScore = structureScore + entryScore;
+                    const oracle = analysis.oracle;
+                    const oraclePrimary = oracle?.status === 'READY' ? oracle.primary : null;
+                    const legacyIsPotential =
+                        technicalScore >= 10 &&
                         structureScore >= 4 &&
                         entryScore >= 4 &&
                         !!stage;
+                    const isPotential = oraclePrimary
+                        ? ['SETUP', 'WATCH'].includes(oraclePrimary.decision)
+                        : legacyIsPotential;
+                    const score = oraclePrimary?.opportunity_score ?? technicalScore;
 
-                    const resolvedStage = isPotential ? stage : null;
+                    const oracleStage = oracle?.setup && stageMeta[oracle.setup] ? oracle.setup : null;
+                    const resolvedStage = isPotential ? (oracleStage || stage) : null;
                     const meta = resolvedStage ? stageMeta[resolvedStage] : null;
-                    const badge = isPotential ? `${meta.short} · ${score}đ` : 'Loại';
-                    const label = isPotential ? `${resolvedStage} · ${score}đ` : `Chưa đạt · ${score}đ`;
-                    const color = isPotential ? meta.color : 'grey';
-                    const icon = isPotential ? meta.icon : 'mdi-filter-remove';
+                    const badge = isPotential
+                        ? `${meta?.short || 'OR'} · ${oraclePrimary ? `${oraclePrimary.probability_target}%` : `${score}đ`}`
+                        : 'NO TRADE';
+                    const label = isPotential
+                        ? `${resolvedStage || 'ORACLE'} · ${oraclePrimary ? `${this.formatSigned(oraclePrimary.expected_r)}R` : `${score}đ`}`
+                        : `NO TRADE · ${oraclePrimary ? `${this.formatSigned(oraclePrimary.expected_r)}R` : `${score}đ`}`;
+                    const color = isPotential ? (meta?.color || 'blue') : 'grey';
+                    const icon = isPotential ? (meta?.icon || 'mdi-crystal-ball') : 'mdi-filter-remove';
+                    const oracleLines = oraclePrimary ? [
+                        `Oracle ${oraclePrimary.horizon}D: ${oraclePrimary.probability_target}% Target / ${oraclePrimary.probability_stop}% Stop`,
+                        `Expected: ${this.formatSigned(oraclePrimary.expected_r)}R · Confidence ${oraclePrimary.confidence} · n=${oraclePrimary.sample_size}`,
+                        `Entry: ${this.formatPrice(oraclePrimary.entry.low)}–${this.formatPrice(oraclePrimary.entry.high)}`,
+                        `Stop: ${this.formatPrice(oraclePrimary.stop)} · Target: ${this.formatPrice(oraclePrimary.target)}`
+                    ] : [];
                     const tooltip = [
-                        `<strong>${isPotential ? '🎯' : 'ℹ️'} ${label}</strong>`,
-                        `Structure score: ${structureScore}`,
-                        `Entry score: ${entryScore}`,
-                        `Total score: ${score}`,
+                        `<strong>${isPotential ? '🔮' : 'ℹ️'} ${label}</strong>`,
+                        ...oracleLines,
+                        `Technical structure: ${structureScore}`,
+                        `Technical entry: ${entryScore}`,
+                        `Technical total: ${technicalScore}`,
                         resolvedStage ? `Stage: ${resolvedStage}` : 'Stage: Chưa đủ điều kiện',
                         matched.length ? `Khớp: ${matched.join(', ')}` : 'Khớp: Chưa có tín hiệu nổi bật',
-                        warnings.length ? `Loại trừ / rủi ro: ${warnings.join(', ')}` : 'Loại trừ / rủi ro: Không có tín hiệu xấu nổi bật'
+                        warnings.length ? `Rủi ro: ${warnings.join(', ')}` : 'Rủi ro kỹ thuật: Không có tín hiệu xấu nổi bật'
                     ].join('<br>');
 
                     return {
@@ -995,30 +1267,82 @@
                         label,
                         color,
                         icon,
-                        tooltip
+                        tooltip,
+                        oracle: oraclePrimary
                     };
                 },
-                async loadData() {
+                async startAnalysisRun(forceRefresh = false) {
+                    const runId = ++this.analysisRunId;
+                    // The previous loop observes the changed run id and exits at
+                    // its next request/delay boundary.
+                    this.autoAnalyzing = false;
+                    const loaded = await this.loadData(runId);
+                    if (loaded && runId === this.analysisRunId) {
+                        await this.autoAnalyzeAll(runId, forceRefresh);
+                    }
+                },
+                async loadData(runId = this.analysisRunId) {
                     this.loading = true;
                     this.errorSnackbar = false;
+                    const requestedExchange = this.selectedExchange;
 
                     try {
-                        const response = await fetch(`/api/symbols?exchange=${this.selectedExchange}`);
+                        const response = await fetch(`/api/symbols?exchange=${requestedExchange}`);
                         const result = await response.json();
 
+                        if (runId !== this.analysisRunId || requestedExchange !== this.selectedExchange) {
+                            return false;
+                        }
+
                         if (result.success) {
+                            let oracleUniverse = null;
+                            if (requestedExchange === 'POTENTIAL') {
+                                try {
+                                    const oracleResponse = await fetch('/api/oracle/universe');
+                                    const oracleResult = await oracleResponse.json();
+                                    if (oracleResult.success && oracleResult.data?.status === 'READY') {
+                                        oracleUniverse = oracleResult.data;
+                                    }
+                                } catch (oracleError) {
+                                    console.warn('⚠️ Oracle snapshot unavailable; continuing with background analysis', oracleError);
+                                }
+                            }
+                            if (runId !== this.analysisRunId) return false;
                             // Initialize analysis fields for each symbol to ensure reactivity
-                            result.data.symbols = result.data.symbols.map(symbol => ({
-                                ...symbol,
-                                analyzing: false,
-                                analysis: null,
-                                analysisError: null,
-                                fetchingPrice: false,
-                                potentialSignal: null
-                            }));
+                            result.data.symbols = result.data.symbols.map(symbol => {
+                                const forecast = oracleUniverse?.forecasts?.[symbol.symbol] || null;
+                                const partialAnalysis = forecast ? {
+                                    price: {
+                                        current: forecast.price,
+                                        changePercent: forecast.change_percent
+                                    },
+                                    oracle: {
+                                        status: 'READY',
+                                        model_version: oracleUniverse.model_version,
+                                        symbol: symbol.symbol,
+                                        as_of: oracleUniverse.as_of,
+                                        horizon: oracleUniverse.horizon,
+                                        symbol_count: oracleUniverse.symbol_count,
+                                        model_health: oracleUniverse.model_health,
+                                        market_state: oracleUniverse.market_state,
+                                        forecast,
+                                        disclaimer: oracleUniverse.disclaimer
+                                    }
+                                } : null;
+                                return {
+                                    ...symbol,
+                                    analyzing: false,
+                                    analysis: partialAnalysis,
+                                    analysisComplete: false,
+                                    analysisError: null,
+                                    fetchingPrice: false,
+                                    potentialSignal: partialAnalysis ? this.evaluatePotentialSignal(partialAnalysis) : null
+                                };
+                            });
 
                             this.matrixData = result.data;
                             console.log(`✅ Loaded ${result.data.symbols.length} symbols`);
+                            return true;
                         } else {
                             throw new Error(result.error || 'Failed to load data');
                         }
@@ -1026,22 +1350,18 @@
                         console.error('❌ Error loading data:', error);
                         this.errorMessage = 'Không thể tải dữ liệu: ' + error.message;
                         this.errorSnackbar = true;
+                        return false;
                     } finally {
-                        this.loading = false;
+                        if (runId === this.analysisRunId) this.loading = false;
                     }
                 },
 
                 // Auto-analysis methods
-                async autoAnalyzeAll() {
+                async autoAnalyzeAll(runId = this.analysisRunId, forceRefresh = false) {
                     if (!this.matrixData || !this.matrixData.symbols || this.matrixData.symbols.length === 0) {
                         return;
                     }
-
-                    if (this.autoAnalyzing) {
-                        console.log('⚠️ Auto-analysis already running, skipping...');
-                        return;
-                    }
-
+                    if (runId !== this.analysisRunId) return;
                     this.autoAnalyzing = true;
 
                     // Priority: VN30 first, then others
@@ -1058,22 +1378,26 @@
                     console.log(`⏱️ Sequential mode: 2s delay between requests (~${Math.ceil(sortedSymbols.length * 2 / 60)} minutes total)`);
 
                     // Process sequentially with delay
-                    await this.analyzeBatch(sortedSymbols);
+                    await this.analyzeBatch(sortedSymbols, runId, forceRefresh);
 
-                    this.autoAnalyzing = false;
-                    console.log(`✅ Completed auto-analysis: ${this.analyzingProgress.completed}/${this.analyzingProgress.total}`);
+                    if (runId === this.analysisRunId) {
+                        this.autoAnalyzing = false;
+                        console.log(`✅ Completed auto-analysis: ${this.analyzingProgress.completed}/${this.analyzingProgress.total}`);
+                    }
                 },
 
-                async analyzeBatch(symbols) {
+                async analyzeBatch(symbols, runId, forceRefresh = false) {
                     // Sequential processing with 1s delay to avoid rate limiting
                     for (let i = 0; i < symbols.length; i++) {
+                        if (runId !== this.analysisRunId) return;
                         const item = symbols[i];
 
                         try {
-                            await this.analyzeSymbolSilent(item);
-                            this.analyzingProgress.completed++;
+                            await this.analyzeSymbolSilent(item, runId, forceRefresh);
                         } catch (err) {
                             console.error(`❌ Error analyzing ${item.symbol}:`, err);
+                        }
+                        if (runId === this.analysisRunId) {
                             this.analyzingProgress.completed++;
                         }
 
@@ -1084,21 +1408,25 @@
                     }
                 },
 
-                async analyzeSymbolSilent(item) {
-                    if (item.analyzing || item.analysis) return; // Skip if already analyzing or analyzed
+                async analyzeSymbolSilent(item, runId, forceRefresh = false) {
+                    if (item.analyzing || item.analysisComplete) return;
 
                     item.analyzing = true;
                     item.analysisError = null;
 
                     try {
-                        const response = await fetch(`/api/analyze/${item.symbol}`);
+                        const suffix = forceRefresh ? '?force=1' : '';
+                        const response = await fetch(`/api/analyze/${item.symbol}${suffix}`);
                         const result = await response.json();
+
+                        if (runId !== this.analysisRunId) return;
 
                         if (result.success) {
                             const potentialSignal = this.evaluatePotentialSignal(result.data);
                             Object.assign(item, {
                                 ...item,
                                 analysis: result.data,
+                                analysisComplete: true,
                                 potentialSignal,
                                 analyzing: false,
                                 analysisError: null

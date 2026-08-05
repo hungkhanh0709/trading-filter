@@ -54,6 +54,11 @@ wheels/
 .coverage
 htmlcov/
 
+# Runtime Oracle memory
+data/oracle.db
+data/oracle.db-shm
+data/oracle.db-wal
+
 # Data files (optional - uncomment if needed)
 # data/raw.json
 # data/data.json
