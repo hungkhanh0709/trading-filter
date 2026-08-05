@@ -358,15 +358,13 @@ class MAAnalyzer:
         ma50 = latest['MA50']
         ma20 = latest['MA20']
         ma10 = latest['MA10']
-        ma200 = latest.get('MA200', 0)
         
         if ma50 > 0:
             dist_to_ma50 = (price - ma50) / ma50 * 100
             dist_to_ma20 = (price - ma20) / ma20 * 100 if ma20 > 0 else 0
             dist_to_ma10 = (price - ma10) / ma10 * 100 if ma10 > 0 else 0
-            dist_to_ma200 = (price - ma200) / ma200 * 100 if ma200 > 0 else 0
         else:
-            dist_to_ma50 = dist_to_ma20 = dist_to_ma10 = dist_to_ma200 = 0
+            dist_to_ma50 = dist_to_ma20 = dist_to_ma10 = 0
         
         # Calculate candle components
         body = abs(price - open_price)
@@ -474,10 +472,6 @@ class MAAnalyzer:
             f"vs MA50: {dist_to_ma50:+.1f}%<br>"
         )
         
-        # Add MA200 if available
-        if ma200 > 0:
-            tooltip += f"vs MA200: {dist_to_ma200:+.1f}%<br>"
-        
         # Add wick rejection signals
         if wick_signals:
             tooltip += "<br><strong>🕯️ Wick Rejection:</strong><br>"
@@ -487,7 +481,6 @@ class MAAnalyzer:
             'vs_ma50': dist_to_ma50,
             'vs_ma20': dist_to_ma20,
             'vs_ma10': dist_to_ma10,
-            'vs_ma200': dist_to_ma200,
             'icon': icon,
             'color': color,
             'label': label,
@@ -502,8 +495,7 @@ class MAAnalyzer:
             dict: {
                 'vs_ma50': float,
                 'vs_ma20': float,
-                'vs_ma10': float,
-                'vs_ma200': float
+                'vs_ma10': float
             }
         """
         latest = self.df.iloc[-1]
@@ -511,21 +503,18 @@ class MAAnalyzer:
         ma50 = latest['MA50']
         ma20 = latest['MA20']
         ma10 = latest['MA10']
-        ma200 = latest.get('MA200', 0)
         
         if ma50 > 0:
             dist_to_ma50 = (price - ma50) / ma50 * 100
             dist_to_ma20 = (price - ma20) / ma20 * 100 if ma20 > 0 else 0
             dist_to_ma10 = (price - ma10) / ma10 * 100 if ma10 > 0 else 0
-            dist_to_ma200 = (price - ma200) / ma200 * 100 if ma200 > 0 else 0
         else:
-            dist_to_ma50 = dist_to_ma20 = dist_to_ma10 = dist_to_ma200 = 0
+            dist_to_ma50 = dist_to_ma20 = dist_to_ma10 = 0
         
         return {
             'vs_ma50': dist_to_ma50,
             'vs_ma20': dist_to_ma20,
-            'vs_ma10': dist_to_ma10,
-            'vs_ma200': dist_to_ma200
+            'vs_ma10': dist_to_ma10
         }    
     def _build_convergence_tooltip(self, convergence, convergence_volume_signal):
         """

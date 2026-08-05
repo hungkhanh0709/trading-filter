@@ -19,10 +19,18 @@ Web app đơn giản hiển thị danh sách mã cổ phiếu theo dõi, với �
 ### Khởi động
 
 ```bash
+npm install
+.venv/bin/python -m pip install -r requirements.txt
 npm start
 ```
 
 Mở trình duyệt: **http://localhost:3000**
+
+### Kiểm tra tích hợp Python
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
 
 ## 📝 Quản lý Watch List
 
