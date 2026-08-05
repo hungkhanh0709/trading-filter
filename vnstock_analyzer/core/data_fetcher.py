@@ -4,9 +4,12 @@ Data fetcher module - Fetch và cache data từ vnstock API với error handling
 
 import sys
 import time
-from datetime import datetime, timedelta
-# Direct import to bypass Company component error
-from vnstock.explorer.vci.quote import Quote
+import logging
+
+from .vnstock_client import Quote
+
+
+HISTORY_COUNT_BACK = 250
 
 
 class DataFetcher:
@@ -20,20 +23,15 @@ class DataFetcher:
             symbol: Stock symbol (e.g., 'HDB', 'FPT')
             source: Data source (default: 'VCI')
             
-        Note: Direct Quote initialization to bypass VCI Company component error
+        Note: Quote is used directly because this analyzer only needs price data.
         """
         self.symbol = symbol
         self.source = source
+        self.active_source = source
+        self.fallback_source = 'KBS' if source.upper() == 'VCI' else None
         
-        # Direct initialization to avoid Company component error in VCI
         try:
-            if source == 'VCI':
-                self.quote = Quote(symbol)
-            else:
-                # Fallback to legacy method for other sources
-                from vnstock import Vnstock
-                self.stock = Vnstock().stock(symbol=symbol, source=source)
-                self.quote = self.stock.quote
+            self.quote = Quote(symbol=symbol, source=source)
         except Exception as e:
             raise RuntimeError(f"Failed to initialize data fetcher for {symbol}: {e}")
         
@@ -44,7 +42,15 @@ class DataFetcher:
         self.retry_delay = 2  # seconds
         self.timeout = 30  # seconds per request
         
-    def _retry_with_backoff(self, func, description, *args, **kwargs):
+    def _retry_with_backoff(
+        self,
+        func,
+        description,
+        *args,
+        max_attempts=None,
+        report_final_error=True,
+        **kwargs
+    ):
         """
         Execute function with exponential backoff retry
         
@@ -56,14 +62,24 @@ class DataFetcher:
         Returns:
             Result from func or None on failure
         """
-        for attempt in range(1, self.max_retries + 1):
+        attempt_limit = max_attempts or self.max_retries
+
+        for attempt in range(1, attempt_limit + 1):
             try:
-                result = func(*args, **kwargs)
+                # vnstock logs every internal retry as ERROR. Only surface the
+                # final application-level warning after its own retries finish.
+                client_logger = logging.getLogger('vnstock.core.utils.client')
+                previous_level = client_logger.level
+                client_logger.setLevel(logging.CRITICAL)
+                try:
+                    result = func(*args, **kwargs)
+                finally:
+                    client_logger.setLevel(previous_level)
                 
                 # Validate result
                 if result is None or (hasattr(result, 'empty') and result.empty):
-                    if attempt < self.max_retries:
-                        print(f"  ⚠️  {description}: Dữ liệu rỗng, thử lại {attempt}/{self.max_retries}...", file=sys.stderr)
+                    if attempt < attempt_limit:
+                        print(f"  ⚠️  {description}: Dữ liệu rỗng, thử lại {attempt}/{attempt_limit}...", file=sys.stderr)
                         time.sleep(self.retry_delay * attempt)
                         continue
                     return None
@@ -75,18 +91,19 @@ class DataFetcher:
                 
                 # Check if it's a network/API error
                 if any(keyword in error_msg.lower() for keyword in ['502', 'bad gateway', 'timeout', 'connection', 'network']):
-                    if attempt < self.max_retries:
+                    if attempt < attempt_limit:
                         wait_time = self.retry_delay * (2 ** (attempt - 1))  # exponential backoff
-                        print(f"  ⚠️  {description}: Lỗi network ({error_msg[:50]}...), thử lại sau {wait_time}s ({attempt}/{self.max_retries})", file=sys.stderr)
+                        print(f"  ⚠️  {description}: Lỗi network ({error_msg[:50]}...), thử lại sau {wait_time}s ({attempt}/{attempt_limit})", file=sys.stderr)
                         time.sleep(wait_time)
                         continue
                 
                 # Non-retryable error or last attempt
-                if attempt == self.max_retries:
-                    print(f"  ❌ {description}: {error_msg}", file=sys.stderr)
+                if attempt == attempt_limit:
+                    if report_final_error:
+                        print(f"  ❌ {description}: {error_msg}", file=sys.stderr)
                     return None
                 else:
-                    print(f"  ⚠️  {description}: Lỗi, thử lại ({attempt}/{self.max_retries})...", file=sys.stderr)
+                    print(f"  ⚠️  {description}: Lỗi, thử lại ({attempt}/{attempt_limit})...", file=sys.stderr)
                     time.sleep(self.retry_delay * attempt)
         
         return None
@@ -103,18 +120,47 @@ class DataFetcher:
         has_critical_data = False
         
         try:
-            # 1. Historical price data - Request 2 years for better EMA accuracy
-            end_date = datetime.now().strftime('%Y-%m-%d')
-            start_date = (datetime.now() - timedelta(days=730)).strftime('%Y-%m-%d')
-            
-            print(f"  ⏳ Lấy lịch sử giá ({start_date} -> {end_date})...", file=sys.stderr)
+            # 1. Historical price data - enough for MA10/20/50 with buffer.
+            print(
+                f"  ⏳ Lấy lịch sử giá ({HISTORY_COUNT_BACK} phiên gần nhất)...",
+                file=sys.stderr
+            )
             
             history = self._retry_with_backoff(
                 self.quote.history,
                 "Lịch sử giá",
-                start=start_date,
-                end=end_date
+                count_back=HISTORY_COUNT_BACK,
+                # Quote.history already retries transient failures internally.
+                max_attempts=1,
+                report_final_error=not self.fallback_source
             )
+
+            if history is None and self.fallback_source:
+                print(
+                    f"  ⚠️  {self.source} không phản hồi, chuyển sang "
+                    f"{self.fallback_source}...",
+                    file=sys.stderr
+                )
+                try:
+                    fallback_quote = Quote(
+                        symbol=self.symbol,
+                        source=self.fallback_source
+                    )
+                    history = self._retry_with_backoff(
+                        fallback_quote.history,
+                        f"Lịch sử giá ({self.fallback_source})",
+                        count_back=HISTORY_COUNT_BACK,
+                        max_attempts=1
+                    )
+                    if history is not None:
+                        self.quote = fallback_quote
+                        self.active_source = self.fallback_source
+                except Exception as e:
+                    print(
+                        f"  ❌ Không thể khởi tạo nguồn dự phòng "
+                        f"{self.fallback_source}: {e}",
+                        file=sys.stderr
+                    )
             
             if history is not None and not history.empty:
                 self.data_cache['history'] = history

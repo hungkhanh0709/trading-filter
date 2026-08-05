@@ -2,9 +2,14 @@
 """
 Fetch stock prices for Vietnamese stocks using vnstock
 """
-import sys
 import json
-from vnstock import Vnstock
+import os
+import sys
+
+# Add parent directory to path for the side-effect-safe vnstock adapter.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from vnstock_analyzer.core.vnstock_client import Quote
 
 # Force unbuffered output for real-time logging
 sys.stderr.reconfigure(line_buffering=True) if hasattr(sys.stderr, 'reconfigure') else None
@@ -21,20 +26,37 @@ def fetch_prices(symbols):
     """
     results = {}
     
-    from datetime import datetime, timedelta
     import time
-    
-    end_date = datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
     
     total = len(symbols)
     success_count = 0
+    sources = ('VCI', 'KBS')
     
     for idx, symbol in enumerate(symbols, 1):
         try:
-            # Use VCI source
-            stock = Vnstock().stock(symbol=symbol, source='VCI')
-            df = stock.quote.history(start=start_date, end=end_date)
+            df = None
+            active_source = None
+
+            for source in sources:
+                try:
+                    quote = Quote(symbol=symbol, source=source)
+                    df = quote.history(count_back=2)
+                except Exception as source_error:
+                    df = None
+                    if source == 'VCI':
+                        print(
+                            f"⚠️  {symbol}: VCI lỗi ({str(source_error)[:50]}...), "
+                            f"chuyển sang KBS...",
+                            file=sys.stderr
+                        )
+                        continue
+                    raise
+
+                if df is not None and not df.empty:
+                    active_source = source
+                    break
+                if source == 'VCI':
+                    print(f"⚠️  {symbol}: VCI không phản hồi, chuyển sang KBS...", file=sys.stderr)
             
             if df is not None and not df.empty and len(df) > 0:
                 # Get the latest data
@@ -53,7 +75,11 @@ def fetch_prices(symbols):
                     'changePercent': round(change_percent, 2)
                 }
                 success_count += 1
-                print(f"✅ Progress: {idx}/{total} - {symbol}: {close_price:.2f} ({change_percent:+.1f}%)", file=sys.stderr)
+                print(
+                    f"✅ Progress: {idx}/{total} - {symbol}: "
+                    f"{close_price:.2f} ({change_percent:+.1f}%, {active_source})",
+                    file=sys.stderr
+                )
             else:
                 results[symbol] = {
                     'price': None,

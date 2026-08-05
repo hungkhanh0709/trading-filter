@@ -39,7 +39,6 @@ class TechnicalAnalyzer:
         self.df['MA10'] = self.df['close'].ewm(span=10, adjust=False).mean()
         self.df['MA20'] = self.df['close'].ewm(span=20, adjust=False).mean()
         self.df['MA50'] = self.df['close'].ewm(span=50, adjust=False).mean()
-        self.df['MA200'] = self.df['close'].ewm(span=200, adjust=False).mean()
     
     def get_analysis(self):
         """
@@ -104,4 +103,3 @@ class TechnicalAnalyzer:
             'ma_analysis': ma_result,
             'component_score': component_score
         }
-

@@ -166,6 +166,12 @@
                                         {{ potentialStats.qualified }}/{{ potentialStats.analyzed }} mã đạt bộ lọc
                                         "Tiềm năng"
                                     </div>
+                                    <div v-if="potentialStageSummary.length" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
+                                        <v-chip v-for="stage in potentialStageSummary" :key="stage.key" size="small"
+                                            :color="stage.color" variant="flat">
+                                            {{ stage.label }}: {{ stage.count }}
+                                        </v-chip>
+                                    </div>
                                 </v-alert>
                             </template>
 
@@ -474,6 +480,27 @@
                         qualified
                     };
                 },
+                potentialStageSummary() {
+                    const stageMeta = [
+                        { key: 'PRE-BREAKOUT', label: 'PRE-BREAKOUT', color: 'indigo' },
+                        { key: 'BREAKOUT EARLY', label: 'BREAKOUT EARLY', color: 'deep-purple' },
+                        { key: 'PULLBACK ENTRY', label: 'PULLBACK ENTRY', color: 'teal' },
+                        { key: 'PERFECT ORDER CONTINUATION', label: 'PO CONTINUATION', color: 'green' }
+                    ];
+
+                    const counts = new Map(stageMeta.map(stage => [stage.key, 0]));
+
+                    (this.matrixData?.symbols || []).forEach(symbol => {
+                        const stage = symbol.potentialSignal?.stage;
+                        if (symbol.potentialSignal?.isPotential && counts.has(stage)) {
+                            counts.set(stage, counts.get(stage) + 1);
+                        }
+                    });
+
+                    return stageMeta
+                        .map(stage => ({ ...stage, count: counts.get(stage.key) || 0 }))
+                        .filter(stage => stage.count > 0);
+                },
                 matrixHeaders() {
                     const headers = [
                         {
@@ -573,6 +600,9 @@
 
                 applySortByPotential(symbols) {
                     return symbols.sort((a, b) => {
+                        const stageDiff = (b.potentialSignal?.stagePriority ?? -Infinity) - (a.potentialSignal?.stagePriority ?? -Infinity);
+                        if (stageDiff !== 0) return stageDiff;
+
                         const scoreDiff = (b.potentialSignal?.score ?? -Infinity) - (a.potentialSignal?.score ?? -Infinity);
                         if (scoreDiff !== 0) return scoreDiff;
 
@@ -617,6 +647,10 @@
                         },
 
                         potential: (a, b) => {
+                            const aStage = a.potentialSignal?.stagePriority ?? -Infinity;
+                            const bStage = b.potentialSignal?.stagePriority ?? -Infinity;
+                            if (aStage !== bStage) return aStage - bStage;
+
                             const aScore = a.potentialSignal?.score ?? -Infinity;
                             const bScore = b.potentialSignal?.score ?? -Infinity;
                             if (aScore !== bScore) return aScore - bScore;
@@ -725,6 +759,9 @@
                     const nearMA50 = priceVsMA50 >= -2.5 && priceVsMA50 <= 2.5;
                     const supportZone = nearMA20 || nearMA50;
                     const aboveSupport = priceVsMA20 >= -1.5 && priceVsMA50 >= -3;
+                    const aboveAllThree = priceVsMA10 >= 0 && priceVsMA20 >= 0 && priceVsMA50 >= 0;
+                    const nearBreakoutMA50 = priceVsMA50 >= -1.5;
+                    const reclaimedMA20 = priceVsMA20 >= 0;
                     const bullishMomentum = ['BULLISH_ALIGNED', 'MOSTLY_BULLISH'].includes(momentumAlignment);
                     const nonBearishMomentum = !['MOSTLY_BEARISH', 'BEARISH_ALIGNED'].includes(momentumAlignment);
                     const tightConvergence = ['SUPER_TIGHT', 'TIGHT'].includes(convergenceLevel);
@@ -830,59 +867,117 @@
                         !tooExtended &&
                         !underPressure;
 
-                    const trendContinuationReady =
+                    const perfectOrderContinuationReady =
                         hasPerfectOrder &&
                         goodExpansion &&
                         bullishMomentum &&
-                        baseReady &&
+                        aboveAllThree &&
+                        priceVsMA20 >= 0 &&
+                        priceVsMA20 <= 3.5 &&
                         !hasDeathCross;
 
-                    const breakoutReady =
+                    const breakoutEarlyReady =
+                        aboveAllThree &&
+                        reclaimedMA20 &&
+                        nearBreakoutMA50 &&
+                        !hasPerfectOrder &&
+                        nonBearishMomentum &&
+                        baseReady &&
+                        (tightConvergence || freshGoldenCross || hasGoldenCross) &&
+                        !hasDeathCross;
+
+                    const preBreakoutReady =
                         tightConvergence &&
                         nonBearishMomentum &&
                         baseReady &&
-                        (hasGoldenCross || hasPerfectOrder || priceVsMA20 >= 0) &&
+                        !aboveAllThree &&
+                        (priceVsMA20 >= -0.8 || priceVsMA50 >= -0.8) &&
                         !hasDeathCross;
 
-                    const pullbackReady =
+                    const pullbackEntryReady =
                         hasPerfectOrder &&
                         bullishMomentum &&
                         baseReady &&
+                        !tooExtended &&
+                        (nearMA20 || nearMA50) &&
                         !hasDeathCross;
 
-                    const recoveryReady =
-                        freshGoldenCross &&
-                        nonBearishMomentum &&
-                        baseReady &&
-                        !hasDeathCross;
+                    const stageCandidates = [
+                        {
+                            key: 'PERFECT ORDER CONTINUATION',
+                            isMatch: perfectOrderContinuationReady
+                        },
+                        {
+                            key: 'PULLBACK ENTRY',
+                            isMatch: pullbackEntryReady
+                        },
+                        {
+                            key: 'BREAKOUT EARLY',
+                            isMatch: breakoutEarlyReady
+                        },
+                        {
+                            key: 'PRE-BREAKOUT',
+                            isMatch: preBreakoutReady
+                        }
+                    ];
 
-                    const setup = pullbackReady
-                        ? 'Pullback Support'
-                        : breakoutReady
-                            ? 'Pre-Breakout Base'
-                            : trendContinuationReady
-                                ? 'Trend Continuation'
-                                : recoveryReady
-                                    ? 'Cross Recovery'
-                                    : null;
+                    const rawStage = stageCandidates.find(candidate => candidate.isMatch)?.key || null;
+
+                    const stageValidation = {
+                        'PRE-BREAKOUT': tightConvergence && !aboveAllThree && priceVsMA50 >= -1.5,
+                        'BREAKOUT EARLY': aboveAllThree && reclaimedMA20 && nearBreakoutMA50,
+                        'PULLBACK ENTRY': hasPerfectOrder && (nearMA20 || nearMA50) && priceVsMA50 >= -2.5,
+                        'PERFECT ORDER CONTINUATION': hasPerfectOrder && aboveAllThree && priceVsMA20 >= 0
+                    };
+
+                    const stage = rawStage && stageValidation[rawStage] ? rawStage : null;
+
+                    const stageMeta = {
+                        'PRE-BREAKOUT': {
+                            short: 'PB',
+                            color: 'indigo',
+                            icon: 'mdi-arrow-collapse-right',
+                            priority: 1
+                        },
+                        'BREAKOUT EARLY': {
+                            short: 'BE',
+                            color: 'deep-purple',
+                            icon: 'mdi-rocket-launch',
+                            priority: 2
+                        },
+                        'PULLBACK ENTRY': {
+                            short: 'PE',
+                            color: 'teal',
+                            icon: 'mdi-chart-bell-curve-cumulative',
+                            priority: 3
+                        },
+                        'PERFECT ORDER CONTINUATION': {
+                            short: 'PO',
+                            color: 'green',
+                            icon: 'mdi-trending-up',
+                            priority: 4
+                        }
+                    };
 
                     const score = structureScore + entryScore;
                     const isPotential =
                         score >= 10 &&
                         structureScore >= 4 &&
                         entryScore >= 4 &&
-                        !!setup;
+                        !!stage;
 
-                    const badge = isPotential ? `${score}đ` : 'Loại';
-                    const label = isPotential ? `${setup} · ${score}đ` : `Chưa đạt · ${score}đ`;
-                    const color = isPotential ? 'deep-purple' : 'grey';
-                    const icon = isPotential ? 'mdi-target' : 'mdi-filter-remove';
+                    const resolvedStage = isPotential ? stage : null;
+                    const meta = resolvedStage ? stageMeta[resolvedStage] : null;
+                    const badge = isPotential ? `${meta.short} · ${score}đ` : 'Loại';
+                    const label = isPotential ? `${resolvedStage} · ${score}đ` : `Chưa đạt · ${score}đ`;
+                    const color = isPotential ? meta.color : 'grey';
+                    const icon = isPotential ? meta.icon : 'mdi-filter-remove';
                     const tooltip = [
                         `<strong>${isPotential ? '🎯' : 'ℹ️'} ${label}</strong>`,
                         `Structure score: ${structureScore}`,
                         `Entry score: ${entryScore}`,
                         `Total score: ${score}`,
-                        setup ? `Setup: ${setup}` : 'Setup: Chưa đủ điều kiện',
+                        resolvedStage ? `Stage: ${resolvedStage}` : 'Stage: Chưa đủ điều kiện',
                         matched.length ? `Khớp: ${matched.join(', ')}` : 'Khớp: Chưa có tín hiệu nổi bật',
                         warnings.length ? `Loại trừ / rủi ro: ${warnings.join(', ')}` : 'Loại trừ / rủi ro: Không có tín hiệu xấu nổi bật'
                     ].join('<br>');
@@ -892,7 +987,8 @@
                         score,
                         structureScore,
                         entryScore,
-                        setup,
+                        stage: resolvedStage,
+                        stagePriority: meta?.priority ?? 0,
                         matched,
                         warnings,
                         badge,

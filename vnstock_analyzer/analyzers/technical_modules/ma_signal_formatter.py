@@ -175,13 +175,11 @@ def format_ma_signals(df, golden_cross, death_cross, convergence, expansion, mom
     ma10 = latest['MA10']
     ma20 = latest['MA20']
     ma50 = latest['MA50']
-    ma200 = latest.get('MA200', 0)
     
     if ma50 > 0:
         dist_ma50 = (price - ma50) / ma50 * 100
         dist_ma20 = (price - ma20) / ma20 * 100 if ma20 > 0 else 0
         dist_ma10 = (price - ma10) / ma10 * 100 if ma10 > 0 else 0
-        dist_ma200 = (price - ma200) / ma200 * 100 if ma200 > 0 else 0
         
         signals.append({
             'type': 'price_position',
@@ -191,15 +189,13 @@ def format_ma_signals(df, golden_cross, death_cross, convergence, expansion, mom
             'data': {
                 'vs_ma10': dist_ma10,
                 'vs_ma20': dist_ma20,
-                'vs_ma50': dist_ma50,
-                'vs_ma200': dist_ma200
+                'vs_ma50': dist_ma50
             },
             'tooltip': (
                 f"<strong>📍 Vị trí giá</strong><br>"
                 f"vs MA10: {dist_ma10:+.1f}%<br>"
                 f"vs MA20: {dist_ma20:+.1f}%<br>"
                 f"vs MA50: {dist_ma50:+.1f}%<br>"
-                f"vs MA200: {dist_ma200:+.1f}%<br>"
             )
         })
     

@@ -1,0 +1,2 @@
+# Keep the application on the verified vnstock API contract.
+vnstock==4.0.5
