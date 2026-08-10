@@ -74,6 +74,11 @@ class MAAnalyzer:
         # Check Perfect Order first (needed for convergence logic)
         latest = self.df.iloc[-1]
         perfect_order = (latest['MA10'] > latest['MA20'] > latest['MA50'])
+        perfect_order_days = 0
+        for _, row in self.df.iloc[::-1].iterrows():
+            if not (row['MA10'] > row['MA20'] > row['MA50']):
+                break
+            perfect_order_days += 1
         
         convergence = detect_convergence(self.df, perfect_order=perfect_order)
         golden_cross = detect_golden_cross(self.df)
@@ -112,6 +117,7 @@ class MAAnalyzer:
                 'ma50_slope': round(expansion.get('ma50_slope', 0), 2),
                 'ma10_ma50_distance': round(expansion.get('ma10_ma50_distance', 0), 2),
                 'ma20_ma50_distance': round(expansion.get('ma20_ma50_distance', 0), 2),
+                'perfect_order_days': perfect_order_days,
                 'message': expansion.get('message', ''),
                 # UI metadata
                 'icon': expansion.get('icon', 'mdi-arrow-expand-all'),
@@ -122,6 +128,10 @@ class MAAnalyzer:
             'convergence': {
                 'is_converging': convergence.get('is_converging'),
                 'convergence_pct': round(convergence.get('convergence_pct', 0), 2),
+                'previous_convergence_pct': round(convergence.get('previous_convergence_pct', 0), 2),
+                'bandwidth_change_5d': round(convergence.get('bandwidth_change_5d', 0), 2),
+                'is_contracting': convergence.get('is_contracting', False),
+                'tight_days': convergence.get('tight_days', 0),
                 'level': convergence.get('level', 'NA'),
                 'slope': convergence.get('slope', 'NA'),
                 'message': convergence.get('message', ''),

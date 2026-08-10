@@ -60,8 +60,28 @@ def detect_convergence(df, perfect_order=False):
             'message': 'MA = 0'
         }
     
-    # Bandwidth % công thức mới
+    # Current bandwidth says the averages are close, but not whether they are
+    # tightening into a base or spreading after a failed move.
     convergence_pct = (max_ma - min_ma) / min_ma * 100
+    previous_convergence_pct = convergence_pct
+    if len(df) >= 6:
+        previous = df.iloc[-6]
+        previous_values = [previous['MA10'], previous['MA20'], previous['MA50']]
+        previous_min = min(previous_values)
+        if previous_min > 0:
+            previous_convergence_pct = (max(previous_values) - previous_min) / previous_min * 100
+
+    bandwidth_change_5d = convergence_pct - previous_convergence_pct
+    # Allow small EMA noise while rejecting a cluster that is visibly opening.
+    is_contracting = bandwidth_change_5d <= 0.15
+
+    tight_days = 0
+    for _, row in df.iloc[::-1].iterrows():
+        values = [row['MA10'], row['MA20'], row['MA50']]
+        row_min = min(values)
+        if row_min <= 0 or (max(values) - row_min) / row_min * 100 >= 3.0:
+            break
+        tight_days += 1
     
     # Phân loại level
     if convergence_pct < 1.5:
@@ -124,6 +144,10 @@ def detect_convergence(df, perfect_order=False):
     return {
         'is_converging': is_converging,
         'convergence_pct': convergence_pct,
+        'previous_convergence_pct': previous_convergence_pct,
+        'bandwidth_change_5d': bandwidth_change_5d,
+        'is_contracting': is_contracting,
+        'tight_days': tight_days,
         'level': level,
         'slope': slope,
         'message': message,
@@ -455,4 +479,3 @@ def detect_death_cross(df):
         'label': label,
         'tooltip': tooltip
     }
-

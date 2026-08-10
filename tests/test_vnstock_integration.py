@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 import pandas as pd
 
 from vnstock_analyzer.analyzers.technical import TechnicalAnalyzer
+from vnstock_analyzer.analyzers.technical_modules.ma_detector import detect_convergence
 from vnstock_analyzer.core.data_fetcher import DataFetcher, HISTORY_COUNT_BACK
 from vnstock_analyzer.scorer import StockScorer
 
@@ -79,6 +80,37 @@ class TechnicalAnalyzerContractTests(unittest.TestCase):
         self.assertIn("MA20", analyzer.df.columns)
         self.assertIn("MA50", analyzer.df.columns)
         self.assertNotIn("MA200", analyzer.df.columns)
+
+    def test_convergence_distinguishes_a_contracting_base_from_expansion(self):
+        contracting = pd.DataFrame(
+            {
+                "MA10": [103.0] * 44 + [103.0, 102.5, 102.0, 101.5, 101.0, 100.5],
+                "MA20": [102.0] * 44 + [102.0, 101.8, 101.6, 101.4, 101.2, 100.3],
+                "MA50": [100.0] * 50,
+            }
+        )
+        expanding = pd.DataFrame(
+            {
+                "MA10": [100.5] * 44 + [100.5, 101.0, 101.5, 102.0, 102.5, 103.0],
+                "MA20": [100.3] * 44 + [100.3, 100.6, 100.9, 101.2, 101.6, 102.0],
+                "MA50": [100.0] * 50,
+            }
+        )
+
+        contracting_result = detect_convergence(contracting)
+        expanding_result = detect_convergence(expanding)
+
+        self.assertTrue(contracting_result["is_contracting"])
+        self.assertLess(contracting_result["bandwidth_change_5d"], 0)
+        self.assertFalse(expanding_result["is_contracting"])
+        self.assertGreater(expanding_result["bandwidth_change_5d"], 0)
+
+    def test_analysis_exposes_additive_potential_context(self):
+        result = TechnicalAnalyzer(_price_history(rows=250)).get_analysis()["ma_analysis"]
+
+        self.assertIn("perfect_order_days", result["expansion"])
+        self.assertIn("is_contracting", result["convergence"])
+        self.assertIn("bandwidth_change_5d", result["convergence"])
 
 
 class StockScorerContractTests(unittest.TestCase):

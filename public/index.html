@@ -146,16 +146,16 @@
                     <v-card>
                         <!-- Exchange Filter Tabs -->
                         <v-tabs v-model="selectedExchange" density="compact" class="px-4">
+                            <v-tab value="POTENTIAL">POTENTIAL</v-tab>
                             <v-tab value="WATCHLIST">Watch List</v-tab>
                             <v-tab value="VN30">VN30</v-tab>
                             <v-tab value="HNX30">HNX30</v-tab>
                             <v-tab value="VN100">VN100</v-tab>
-                            <v-tab value="POTENTIAL">POTENTIAL</v-tab>
                         </v-tabs>
 
                         <v-data-table :headers="matrixHeaders" :items="sortedSymbols" :items-per-page="100"
                             v-model:sort-by="sortBy" :must-sort="false" :multi-sort="false" class="elevation-1"
-                            density="compact" :search="search">
+                            density="compact" :search="search" :no-data-text="tableNoDataText">
                             <template v-slot:top>
                                 <v-text-field v-model="search" label="Tìm kiếm mã" prepend-inner-icon="mdi-magnify"
                                     variant="outlined" hide-details single-line class="ma-4"
@@ -163,8 +163,13 @@
                                 <v-alert v-if="selectedExchange === 'POTENTIAL'" type="info" variant="tonal"
                                     class="mx-4 mb-4" density="compact">
                                     <div style="font-weight: 600;">
-                                        {{ potentialStats.qualified }}/{{ potentialStats.analyzed }} mã đạt bộ lọc
-                                        "Tiềm năng"
+                                        {{ potentialStats.ready }} READY · {{ potentialStats.watch }} WATCH /
+                                        {{ potentialStats.analyzed }} mã đã phân tích ·
+                                        {{ potentialStats.confirmed }} mã được breadth xác nhận
+                                    </div>
+                                    <div v-if="potentialBreadth.analyzed" style="font-size: 0.85em; margin-top: 4px;">
+                                        Market breadth: {{ potentialBreadth.aboveMA50Percent }}% trên MA50 ·
+                                        {{ potentialBreadth.bullishPercent }}% momentum bullish
                                     </div>
                                     <div v-if="potentialStageSummary.length" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
                                         <v-chip v-for="stage in potentialStageSummary" :key="stage.key" size="small"
@@ -367,6 +372,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.15/dist/vue.global.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/vuetify@3.5.1/dist/vuetify.min.js"></script>
+    <script src="/potential-filter.js"></script>
     <script>
         const { createApp } = Vue;
         const { createVuetify } = Vuetify;
@@ -394,7 +400,7 @@
             data() {
                 return {
                     loading: false,
-                    selectedExchange: 'WATCHLIST',
+                    selectedExchange: 'POTENTIAL',
                     matrixData: {
                         dates: [],
                         symbols: [],
@@ -408,6 +414,7 @@
                     analyzingProgress: { completed: 0, total: 0 },
                     maxConcurrent: 5,
                     autoAnalyzing: false,
+                    analysisRunId: 0,
                     // Table sorting state
                     sortBy: [] // Vuetify v-model:sort-by binding
                 };
@@ -420,6 +427,20 @@
                     }
 
                     return symbols.filter(symbol => symbol.potentialSignal?.isPotential);
+                },
+                tableNoDataText() {
+                    if (this.selectedExchange !== 'POTENTIAL') {
+                        return 'No data available';
+                    }
+                    if (this.autoAnalyzing) {
+                        return `Đang phân tích ${this.analyzingProgress.completed}/${this.analyzingProgress.total} mã; chưa có mã đạt setup trong phần đã xử lý.`;
+                    }
+                    const total = this.matrixData?.symbols?.length || 0;
+                    const analyzed = (this.matrixData?.symbols || []).filter(symbol => !!symbol.analysis).length;
+                    if (analyzed < total) {
+                        return `Mới phân tích ${analyzed}/${total} mã. Hãy bấm nút Phân tích tất cả để tiếp tục.`;
+                    }
+                    return 'Đã phân tích toàn bộ nhưng hiện không có mã đạt setup POTENTIAL.';
                 },
                 // Sorted symbols
                 sortedSymbols() {
@@ -474,18 +495,42 @@
                     const symbols = this.matrixData?.symbols || [];
                     const analyzed = symbols.filter(symbol => !!symbol.analysis).length;
                     const qualified = symbols.filter(symbol => symbol.potentialSignal?.isPotential).length;
+                    const ready = symbols.filter(symbol => symbol.potentialSignal?.isReady).length;
+                    const watch = symbols.filter(symbol => symbol.potentialSignal?.isWatchCandidate).length;
+                    const confirmed = symbols.filter(symbol => symbol.potentialSignal?.marketConfirmed).length;
 
                     return {
                         analyzed,
-                        qualified
+                        qualified,
+                        ready,
+                        watch,
+                        confirmed
+                    };
+                },
+                potentialBreadth() {
+                    const analyzed = (this.matrixData?.symbols || []).filter(symbol => !!symbol.analysis);
+                    if (!analyzed.length) {
+                        return { analyzed: 0, aboveMA50Ratio: 0, bullishRatio: 0, aboveMA50Percent: 0, bullishPercent: 0 };
+                    }
+                    const aboveMA50Ratio = analyzed.filter(symbol =>
+                        (symbol.analysis?.price_position?.vs_ma50 ?? -Infinity) >= 0
+                    ).length / analyzed.length;
+                    const bullishRatio = analyzed.filter(symbol =>
+                        ['BULLISH_ALIGNED', 'MOSTLY_BULLISH'].includes(symbol.analysis?.momentum?.alignment)
+                    ).length / analyzed.length;
+                    return {
+                        analyzed: analyzed.length,
+                        aboveMA50Ratio,
+                        bullishRatio,
+                        aboveMA50Percent: Math.round(aboveMA50Ratio * 100),
+                        bullishPercent: Math.round(bullishRatio * 100)
                     };
                 },
                 potentialStageSummary() {
                     const stageMeta = [
-                        { key: 'PRE-BREAKOUT', label: 'PRE-BREAKOUT', color: 'indigo' },
                         { key: 'BREAKOUT EARLY', label: 'BREAKOUT EARLY', color: 'deep-purple' },
-                        { key: 'PULLBACK ENTRY', label: 'PULLBACK ENTRY', color: 'teal' },
-                        { key: 'PERFECT ORDER CONTINUATION', label: 'PO CONTINUATION', color: 'green' }
+                        { key: 'PULLBACK MA20', label: 'PULLBACK MA20', color: 'teal' },
+                        { key: 'PULLBACK MA50', label: 'PULLBACK MA50', color: 'green' }
                     ];
 
                     const counts = new Map(stageMeta.map(stage => [stage.key, 0]));
@@ -574,14 +619,18 @@
                 }
             },
             mounted() {
-                this.loadData().then(() => {
-                    this.autoAnalyzeAll();
+                this.loadData().then(loaded => {
+                    if (loaded) this.autoAnalyzeAll();
                 });
             },
             watch: {
                 selectedExchange() {
-                    this.loadData().then(() => {
-                        this.autoAnalyzeAll();
+                    // Cancel the previous tab's detached batch immediately. A
+                    // fresh run starts after the new symbol list is loaded.
+                    this.analysisRunId += 1;
+                    this.autoAnalyzing = false;
+                    this.loadData().then(loaded => {
+                        if (loaded) this.autoAnalyzeAll();
                     });
                 }
             },
@@ -600,6 +649,9 @@
 
                 applySortByPotential(symbols) {
                     return symbols.sort((a, b) => {
+                        const statusDiff = (b.potentialSignal?.statusPriority ?? -Infinity) - (a.potentialSignal?.statusPriority ?? -Infinity);
+                        if (statusDiff !== 0) return statusDiff;
+
                         const stageDiff = (b.potentialSignal?.stagePriority ?? -Infinity) - (a.potentialSignal?.stagePriority ?? -Infinity);
                         if (stageDiff !== 0) return stageDiff;
 
@@ -647,6 +699,10 @@
                         },
 
                         potential: (a, b) => {
+                            const aStatus = a.potentialSignal?.statusPriority ?? -Infinity;
+                            const bStatus = b.potentialSignal?.statusPriority ?? -Infinity;
+                            if (aStatus !== bStatus) return aStatus - bStatus;
+
                             const aStage = a.potentialSignal?.stagePriority ?? -Infinity;
                             const bStage = b.potentialSignal?.stagePriority ?? -Infinity;
                             if (aStage !== bStage) return aStage - bStage;
@@ -733,280 +789,31 @@
                     return 'change-neutral';
                 },
                 evaluatePotentialSignal(analysis) {
-                    if (!analysis || analysis.error) {
-                        return null;
-                    }
-
-                    const matched = [];
-                    const warnings = [];
-                    let structureScore = 0;
-                    let entryScore = 0;
-
-                    const priceVsMA10 = analysis.price_position?.vs_ma10 ?? -Infinity;
-                    const priceVsMA20 = analysis.price_position?.vs_ma20 ?? -Infinity;
-                    const priceVsMA50 = analysis.price_position?.vs_ma50 ?? -Infinity;
-                    const convergenceLevel = analysis.convergence?.level;
-                    const momentumAlignment = analysis.momentum?.alignment;
-                    const expansionQuality = analysis.expansion?.quality;
-                    const volumeTrend = analysis.volume_analysis?.trend;
-                    const goldenCrosses = analysis.golden_cross?.crosses || [];
-                    const deathCrosses = analysis.death_cross?.crosses || [];
-
-                    const hasPerfectOrder = !!analysis.perfect_order;
-                    const hasGoldenCross = !!analysis.golden_cross?.has_cross;
-                    const hasDeathCross = !!analysis.death_cross?.has_cross;
-                    const nearMA20 = priceVsMA20 >= -1.2 && priceVsMA20 <= 2.5;
-                    const nearMA50 = priceVsMA50 >= -2.5 && priceVsMA50 <= 2.5;
-                    const supportZone = nearMA20 || nearMA50;
-                    const aboveSupport = priceVsMA20 >= -1.5 && priceVsMA50 >= -3;
-                    const aboveAllThree = priceVsMA10 >= 0 && priceVsMA20 >= 0 && priceVsMA50 >= 0;
-                    const nearBreakoutMA50 = priceVsMA50 >= -1.5;
-                    const reclaimedMA20 = priceVsMA20 >= 0;
-                    const bullishMomentum = ['BULLISH_ALIGNED', 'MOSTLY_BULLISH'].includes(momentumAlignment);
-                    const nonBearishMomentum = !['MOSTLY_BEARISH', 'BEARISH_ALIGNED'].includes(momentumAlignment);
-                    const tightConvergence = ['SUPER_TIGHT', 'TIGHT'].includes(convergenceLevel);
-                    const goodExpansion = ['STRONG', 'MODERATE'].includes(expansionQuality);
-                    const accumulationVolume = ['DECREASING', 'STABLE'].includes(volumeTrend);
-                    const expandingVolume = volumeTrend === 'INCREASING';
-                    const extendedAboveMA20 = priceVsMA20 > 4.5;
-                    const extendedAboveMA50 = priceVsMA50 > 8;
-                    const tooExtended = extendedAboveMA20 || extendedAboveMA50;
-                    const underPressure = priceVsMA20 < -2.5 || priceVsMA50 < -4;
-                    const freshGoldenCross = hasGoldenCross && goldenCrosses.length > 0;
-                    const severeDeathCross = hasDeathCross && deathCrosses.length > 0;
-
-                    if (hasPerfectOrder) {
-                        structureScore += 3;
-                        matched.push('Perfect Order');
-                    }
-
-                    if (freshGoldenCross) {
-                        structureScore += 3;
-                        matched.push('Golden Cross');
-                    } else if (hasGoldenCross) {
-                        structureScore += 2;
-                        matched.push('Golden Cross');
-                    }
-
-                    if (expansionQuality === 'MODERATE') {
-                        structureScore += 2;
-                        matched.push('MA expansion vừa');
-                    } else if (expansionQuality === 'STRONG') {
-                        structureScore += 1;
-                        matched.push('MA expansion mạnh');
-                    }
-
-                    if (bullishMomentum) {
-                        structureScore += 2;
-                        matched.push('Momentum bullish');
-                    } else if (nonBearishMomentum) {
-                        structureScore += 1;
-                        matched.push('Momentum không bearish');
-                    }
-
-                    if (priceVsMA20 >= 0 && priceVsMA50 >= 0) {
-                        entryScore += 2;
-                        matched.push('Giá trên MA20 và MA50');
-                    } else if (priceVsMA20 >= 0) {
-                        entryScore += 1;
-                        matched.push('Giá trên MA20');
-                    }
-
-                    if (nearMA20) {
-                        entryScore += 3;
-                        matched.push('Điểm vào gần MA20');
-                    } else if (nearMA50) {
-                        entryScore += 2;
-                        matched.push('Điểm vào gần MA50');
-                    }
-
-                    if (convergenceLevel === 'SUPER_TIGHT') {
-                        entryScore += 3;
-                        matched.push('Convergence super tight');
-                    } else if (convergenceLevel === 'TIGHT') {
-                        entryScore += 2;
-                        matched.push('Convergence tight');
-                    }
-
-                    if (accumulationVolume) {
-                        entryScore += 1;
-                        matched.push(volumeTrend === 'DECREASING' ? 'Volume tích luỹ' : 'Volume ổn định');
-                    } else if (expandingVolume && tightConvergence && priceVsMA20 >= 0) {
-                        entryScore += 1;
-                        matched.push('Volume mở rộng theo breakout');
-                    }
-
-                    if (hasDeathCross) {
-                        structureScore -= severeDeathCross ? 6 : 4;
-                        warnings.push('Death Cross');
-                    }
-
-                    if (!nonBearishMomentum) {
-                        structureScore -= 4;
-                        warnings.push('Momentum bearish');
-                    }
-
-                    if (tooExtended) {
-                        entryScore -= 4;
-                        warnings.push('Giá đã chạy quá xa MA');
-                    }
-
-                    if (underPressure) {
-                        entryScore -= 3;
-                        warnings.push('Giá mất vùng hỗ trợ MA20/MA50');
-                    }
-
-                    if (priceVsMA10 < -2) {
-                        entryScore -= 1;
-                        warnings.push('Phản ứng ngắn hạn yếu dưới MA10');
-                    }
-
-                    const baseReady =
-                        supportZone &&
-                        aboveSupport &&
-                        !tooExtended &&
-                        !underPressure;
-
-                    const perfectOrderContinuationReady =
-                        hasPerfectOrder &&
-                        goodExpansion &&
-                        bullishMomentum &&
-                        aboveAllThree &&
-                        priceVsMA20 >= 0 &&
-                        priceVsMA20 <= 3.5 &&
-                        !hasDeathCross;
-
-                    const breakoutEarlyReady =
-                        aboveAllThree &&
-                        reclaimedMA20 &&
-                        nearBreakoutMA50 &&
-                        !hasPerfectOrder &&
-                        nonBearishMomentum &&
-                        baseReady &&
-                        (tightConvergence || freshGoldenCross || hasGoldenCross) &&
-                        !hasDeathCross;
-
-                    const preBreakoutReady =
-                        tightConvergence &&
-                        nonBearishMomentum &&
-                        baseReady &&
-                        !aboveAllThree &&
-                        (priceVsMA20 >= -0.8 || priceVsMA50 >= -0.8) &&
-                        !hasDeathCross;
-
-                    const pullbackEntryReady =
-                        hasPerfectOrder &&
-                        bullishMomentum &&
-                        baseReady &&
-                        !tooExtended &&
-                        (nearMA20 || nearMA50) &&
-                        !hasDeathCross;
-
-                    const stageCandidates = [
-                        {
-                            key: 'PERFECT ORDER CONTINUATION',
-                            isMatch: perfectOrderContinuationReady
-                        },
-                        {
-                            key: 'PULLBACK ENTRY',
-                            isMatch: pullbackEntryReady
-                        },
-                        {
-                            key: 'BREAKOUT EARLY',
-                            isMatch: breakoutEarlyReady
-                        },
-                        {
-                            key: 'PRE-BREAKOUT',
-                            isMatch: preBreakoutReady
+                    return PotentialFilter.evaluatePotentialSignal(analysis);
+                },
+                refreshPotentialSignals() {
+                    const marketContext = this.potentialBreadth;
+                    (this.matrixData?.symbols || []).forEach(symbol => {
+                        if (symbol.analysis) {
+                            symbol.potentialSignal = PotentialFilter.evaluatePotentialSignal(
+                                symbol.analysis,
+                                marketContext
+                            );
                         }
-                    ];
-
-                    const rawStage = stageCandidates.find(candidate => candidate.isMatch)?.key || null;
-
-                    const stageValidation = {
-                        'PRE-BREAKOUT': tightConvergence && !aboveAllThree && priceVsMA50 >= -1.5,
-                        'BREAKOUT EARLY': aboveAllThree && reclaimedMA20 && nearBreakoutMA50,
-                        'PULLBACK ENTRY': hasPerfectOrder && (nearMA20 || nearMA50) && priceVsMA50 >= -2.5,
-                        'PERFECT ORDER CONTINUATION': hasPerfectOrder && aboveAllThree && priceVsMA20 >= 0
-                    };
-
-                    const stage = rawStage && stageValidation[rawStage] ? rawStage : null;
-
-                    const stageMeta = {
-                        'PRE-BREAKOUT': {
-                            short: 'PB',
-                            color: 'indigo',
-                            icon: 'mdi-arrow-collapse-right',
-                            priority: 1
-                        },
-                        'BREAKOUT EARLY': {
-                            short: 'BE',
-                            color: 'deep-purple',
-                            icon: 'mdi-rocket-launch',
-                            priority: 2
-                        },
-                        'PULLBACK ENTRY': {
-                            short: 'PE',
-                            color: 'teal',
-                            icon: 'mdi-chart-bell-curve-cumulative',
-                            priority: 3
-                        },
-                        'PERFECT ORDER CONTINUATION': {
-                            short: 'PO',
-                            color: 'green',
-                            icon: 'mdi-trending-up',
-                            priority: 4
-                        }
-                    };
-
-                    const score = structureScore + entryScore;
-                    const isPotential =
-                        score >= 10 &&
-                        structureScore >= 4 &&
-                        entryScore >= 4 &&
-                        !!stage;
-
-                    const resolvedStage = isPotential ? stage : null;
-                    const meta = resolvedStage ? stageMeta[resolvedStage] : null;
-                    const badge = isPotential ? `${meta.short} · ${score}đ` : 'Loại';
-                    const label = isPotential ? `${resolvedStage} · ${score}đ` : `Chưa đạt · ${score}đ`;
-                    const color = isPotential ? meta.color : 'grey';
-                    const icon = isPotential ? meta.icon : 'mdi-filter-remove';
-                    const tooltip = [
-                        `<strong>${isPotential ? '🎯' : 'ℹ️'} ${label}</strong>`,
-                        `Structure score: ${structureScore}`,
-                        `Entry score: ${entryScore}`,
-                        `Total score: ${score}`,
-                        resolvedStage ? `Stage: ${resolvedStage}` : 'Stage: Chưa đủ điều kiện',
-                        matched.length ? `Khớp: ${matched.join(', ')}` : 'Khớp: Chưa có tín hiệu nổi bật',
-                        warnings.length ? `Loại trừ / rủi ro: ${warnings.join(', ')}` : 'Loại trừ / rủi ro: Không có tín hiệu xấu nổi bật'
-                    ].join('<br>');
-
-                    return {
-                        isPotential,
-                        score,
-                        structureScore,
-                        entryScore,
-                        stage: resolvedStage,
-                        stagePriority: meta?.priority ?? 0,
-                        matched,
-                        warnings,
-                        badge,
-                        label,
-                        color,
-                        icon,
-                        tooltip
-                    };
+                    });
                 },
                 async loadData() {
                     this.loading = true;
                     this.errorSnackbar = false;
+                    const requestedExchange = this.selectedExchange;
 
                     try {
-                        const response = await fetch(`/api/symbols?exchange=${this.selectedExchange}`);
+                        const response = await fetch(`/api/symbols?exchange=${requestedExchange}`);
                         const result = await response.json();
 
                         if (result.success) {
+                            // Ignore a late response from a tab the user already left.
+                            if (requestedExchange !== this.selectedExchange) return false;
                             // Initialize analysis fields for each symbol to ensure reactivity
                             result.data.symbols = result.data.symbols.map(symbol => ({
                                 ...symbol,
@@ -1019,6 +826,7 @@
 
                             this.matrixData = result.data;
                             console.log(`✅ Loaded ${result.data.symbols.length} symbols`);
+                            return true;
                         } else {
                             throw new Error(result.error || 'Failed to load data');
                         }
@@ -1026,6 +834,7 @@
                         console.error('❌ Error loading data:', error);
                         this.errorMessage = 'Không thể tải dữ liệu: ' + error.message;
                         this.errorSnackbar = true;
+                        return false;
                     } finally {
                         this.loading = false;
                     }
@@ -1037,11 +846,9 @@
                         return;
                     }
 
-                    if (this.autoAnalyzing) {
-                        console.log('⚠️ Auto-analysis already running, skipping...');
-                        return;
-                    }
-
+                    // Every invocation supersedes an older batch. Already
+                    // analyzed objects are skipped, so a manual retry is cheap.
+                    const runId = ++this.analysisRunId;
                     this.autoAnalyzing = true;
 
                     // Priority: VN30 first, then others
@@ -1058,15 +865,26 @@
                     console.log(`⏱️ Sequential mode: 2s delay between requests (~${Math.ceil(sortedSymbols.length * 2 / 60)} minutes total)`);
 
                     // Process sequentially with delay
-                    await this.analyzeBatch(sortedSymbols);
+                    await this.analyzeBatch(sortedSymbols, runId);
+
+                    // A tab switch or newer manual run owns the UI now.
+                    if (runId !== this.analysisRunId) return;
+
+                    // Re-evaluate once the full breadth is known. Breadth only
+                    // annotates READY candidates; it never hides READY/WATCH.
+                    this.refreshPotentialSignals();
 
                     this.autoAnalyzing = false;
                     console.log(`✅ Completed auto-analysis: ${this.analyzingProgress.completed}/${this.analyzingProgress.total}`);
                 },
 
-                async analyzeBatch(symbols) {
+                async analyzeBatch(symbols, runId) {
                     // Sequential processing with 1s delay to avoid rate limiting
                     for (let i = 0; i < symbols.length; i++) {
+                        if (runId !== this.analysisRunId) {
+                            console.log('ℹ️ Analysis batch superseded by a newer tab/run.');
+                            return;
+                        }
                         const item = symbols[i];
 
                         try {
