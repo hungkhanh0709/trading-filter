@@ -169,7 +169,17 @@
                                     </div>
                                     <div v-if="potentialBreadth.analyzed" style="font-size: 0.85em; margin-top: 4px;">
                                         Market breadth: {{ potentialBreadth.aboveMA50Percent }}% trên MA50 ·
-                                        {{ potentialBreadth.bullishPercent }}% momentum bullish
+                                        {{ potentialBreadth.bullishPercent }}% momentum bullish ·
+                                        Dữ liệu đến phiên {{ potentialAsOf || '-' }}
+                                    </div>
+                                    <div v-if="potentialTransitions.entered.length || potentialTransitions.exited.length"
+                                        style="font-size: 0.85em; margin-top: 6px;">
+                                        <span v-if="potentialTransitions.entered.length">
+                                            Mới vào: {{ potentialTransitions.entered.join(', ') }}.
+                                        </span>
+                                        <span v-if="potentialTransitions.exited.length">
+                                            Rời Potential: {{ potentialTransitions.exited.join(', ') }}.
+                                        </span>
                                     </div>
                                     <div v-if="potentialStageSummary.length" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
                                         <v-chip v-for="stage in potentialStageSummary" :key="stage.key" size="small"
@@ -213,7 +223,8 @@
                             </template>
 
                             <template v-slot:item.potential="{ item }">
-                                <v-tooltip v-if="item.potentialSignal" location="top">
+                                <div v-if="item.potentialSignal" style="display: flex; flex-direction: column; align-items: center; gap: 3px;">
+                                <v-tooltip location="top">
                                     <template v-slot:activator="{ props }">
                                         <v-chip v-bind="props" :color="item.potentialSignal.color"
                                             :prepend-icon="item.potentialSignal.icon" size="small"
@@ -223,6 +234,11 @@
                                     </template>
                                     <div v-html="item.potentialSignal.tooltip"></div>
                                 </v-tooltip>
+                                <v-chip v-if="item.potentialTransition && item.potentialTransition.type !== 'STABLE'"
+                                    :color="item.potentialTransition.color" size="x-small" variant="tonal">
+                                    {{ item.potentialTransition.label }}
+                                </v-chip>
+                                </div>
                                 <span v-else style="color: #999;">-</span>
                             </template>
 
@@ -260,6 +276,13 @@
                                         </v-chip>
                                     </template>
                                     <div v-html="item.analysis.price_position.tooltip"></div>
+                                    <div style="margin-top: 6px; opacity: 0.85;">
+                                        Nguồn: {{ item.analysis.data_source || 'không xác định' }} ·
+                                        Phiên: {{ item.analysis.data_as_of || 'không xác định' }}<br>
+                                        Ba đường EMA(close) 10/20/50 · seed SMA · giá lịch sử chưa điều chỉnh<br>
+                                        Hoàn nguyên {{ item.analysis.cash_dividend_adjustments?.length || 0 }} sự kiện cổ tức tiền mặt ·
+                                        {{ item.analysis.data_price_mode === 'UNADJUSTED_RESTORED' ? 'đã xác minh corporate actions' : 'chưa xác minh corporate actions' }}
+                                    </div>
                                 </v-tooltip>
                                 <span v-else style="color: #999;">-</span>
                             </template>
@@ -415,6 +438,7 @@
                     maxConcurrent: 5,
                     autoAnalyzing: false,
                     analysisRunId: 0,
+                    potentialHistory: { latest: null, previous: null },
                     // Table sorting state
                     sortBy: [] // Vuetify v-model:sort-by binding
                 };
@@ -546,6 +570,25 @@
                         .map(stage => ({ ...stage, count: counts.get(stage.key) || 0 }))
                         .filter(stage => stage.count > 0);
                 },
+                potentialAsOf() {
+                    const dates = (this.matrixData?.symbols || [])
+                        .map(symbol => symbol.analysis?.data_as_of)
+                        .filter(Boolean)
+                        .sort();
+                    return dates.length ? dates[dates.length - 1] : null;
+                },
+                potentialTransitions() {
+                    const entered = [];
+                    const exited = [];
+                    (this.matrixData?.symbols || []).forEach(symbol => {
+                        if (symbol.potentialTransition?.type === 'ENTERED') entered.push(symbol.symbol);
+                        if (symbol.potentialTransition?.type === 'EXITED') {
+                            const reason = symbol.potentialTransition.reason;
+                            exited.push(reason ? `${symbol.symbol} (${reason})` : symbol.symbol);
+                        }
+                    });
+                    return { entered, exited };
+                },
                 matrixHeaders() {
                     const headers = [
                         {
@@ -619,6 +662,7 @@
                 }
             },
             mounted() {
+                this.loadPotentialHistory();
                 this.loadData().then(loaded => {
                     if (loaded) this.autoAnalyzeAll();
                 });
@@ -802,6 +846,54 @@
                         }
                     });
                 },
+                loadPotentialHistory() {
+                    try {
+                        const stored = JSON.parse(localStorage.getItem('potential-history-v3-unadjusted-ema') || '{}');
+                        this.potentialHistory = {
+                            latest: stored.latest || null,
+                            previous: stored.previous || null
+                        };
+                    } catch (error) {
+                        console.warn('Không thể đọc lịch sử Potential:', error);
+                        this.potentialHistory = { latest: null, previous: null };
+                    }
+                },
+                updatePotentialHistory() {
+                    if (this.selectedExchange !== 'POTENTIAL') return;
+                    const analyzed = (this.matrixData?.symbols || []).filter(
+                        symbol => symbol.potentialSignal && symbol.analysis?.data_as_of
+                    );
+                    if (!analyzed.length) return;
+
+                    const currentDate = analyzed
+                        .map(symbol => symbol.analysis.data_as_of)
+                        .sort()
+                        .at(-1);
+                    let history = this.potentialHistory || { latest: null, previous: null };
+                    if (!history.latest || history.latest.date !== currentDate) {
+                        history = {
+                            previous: history.latest,
+                            latest: { date: currentDate, signals: {} }
+                        };
+                    }
+
+                    const previousSignals = history.previous?.signals || {};
+                    analyzed.forEach(symbol => {
+                        const previous = previousSignals[symbol.symbol] || null;
+                        symbol.potentialTransition = PotentialFilter.comparePotentialSignals(
+                            previous,
+                            symbol.potentialSignal
+                        );
+                        history.latest.signals[symbol.symbol] =
+                            PotentialFilter.summarizePotentialSignal(symbol.potentialSignal);
+                    });
+                    this.potentialHistory = history;
+                    try {
+                        localStorage.setItem('potential-history-v3-unadjusted-ema', JSON.stringify(history));
+                    } catch (error) {
+                        console.warn('Không thể lưu lịch sử Potential:', error);
+                    }
+                },
                 async loadData() {
                     this.loading = true;
                     this.errorSnackbar = false;
@@ -821,7 +913,8 @@
                                 analysis: null,
                                 analysisError: null,
                                 fetchingPrice: false,
-                                potentialSignal: null
+                                potentialSignal: null,
+                                potentialTransition: null
                             }));
 
                             this.matrixData = result.data;
@@ -873,6 +966,7 @@
                     // Re-evaluate once the full breadth is known. Breadth only
                     // annotates READY candidates; it never hides READY/WATCH.
                     this.refreshPotentialSignals();
+                    this.updatePotentialHistory();
 
                     this.autoAnalyzing = false;
                     console.log(`✅ Completed auto-analysis: ${this.analyzingProgress.completed}/${this.analyzingProgress.total}`);

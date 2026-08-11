@@ -1,7 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { evaluatePotentialSignal, evaluateSupportTest } = require('../public/potential-filter');
+const {
+    evaluatePotentialSignal,
+    evaluateSupportTest,
+    comparePotentialSignals
+} = require('../public/potential-filter');
 
 function analysis(overrides = {}) {
     const base = {
@@ -14,14 +18,14 @@ function analysis(overrides = {}) {
             changePercent: 1
         },
         price_position: { vs_ma10: 0.5, vs_ma20: 1, vs_ma50: 1.5 },
-        convergence: { level: 'SUPER_TIGHT', slope: 'UP', is_contracting: true },
+        convergence: { level: 'SUPER_TIGHT', slope: 'UP', is_contracting: true, tight_days: 8 },
         expansion: { perfect_order_days: 10 },
         momentum: {
             alignment: 'BULLISH_ALIGNED',
             ma20: { slope: 0.2 },
             ma50: { slope: 0.1 }
         },
-        volume_analysis: { trend: 'DECREASING', volume_ratio: 0.7 },
+        volume_analysis: { trend: 'INCREASING', volume_ratio: 1.1 },
         death_cross: { has_cross: false }
     };
 
@@ -82,6 +86,25 @@ test('surfaces a high-score pre-breakout candidate as WATCH', () => {
     assert.match(result.badge, /^WATCH BE/);
 });
 
+test('rejects a one-session MA base instead of promoting it to Potential', () => {
+    const result = evaluatePotentialSignal(analysis({
+        convergence: { tight_days: 1 }
+    }));
+
+    assert.equal(result.isPotential, false);
+    assert.ok(result.warnings.some(warning => warning.includes('cần tối thiểu 3 phiên')));
+});
+
+test('keeps an established breakout base at WATCH until volume confirms', () => {
+    const result = evaluatePotentialSignal(analysis({
+        volume_analysis: { volume_ratio: 0.7 }
+    }));
+
+    assert.equal(result.isReady, false);
+    assert.equal(result.isWatchCandidate, true);
+    assert.ok(result.warnings.includes('Volume chưa xác nhận breakout'));
+});
+
 test('rejects tight convergence when the MA cluster points down', () => {
     const result = evaluatePotentialSignal(analysis({
         convergence: { slope: 'DOWN' },
@@ -106,6 +129,18 @@ test('detects a confirmed perfect-order pullback to MA20', () => {
     assert.equal(result.isPotential, true);
     assert.equal(result.stage, 'PULLBACK MA20');
     assert.equal(result.support, 'MA20');
+});
+
+test('rejects a pullback when Perfect Order has existed for only one session', () => {
+    const result = evaluatePotentialSignal(analysis({
+        perfect_order: true,
+        expansion: { perfect_order_days: 1 },
+        convergence: { level: 'LOOSE', slope: 'UP' },
+        price_position: { vs_ma10: -1, vs_ma20: 1, vs_ma50: 8 }
+    }));
+
+    assert.equal(result.isPotential, false);
+    assert.ok(result.warnings.some(warning => warning.includes('cần tối thiểu 3 phiên')));
 });
 
 test('allows a genuine MA50 pullback below MA20 instead of rejecting it as pressure', () => {
@@ -134,7 +169,7 @@ test('does not call proximity a pullback when the candle has not tested the MA',
     assert.equal(result.isPotential, false);
 });
 
-test('keeps a marginal MA50 hold without bullish reaction at WATCH only', () => {
+test('rejects a marginal MA50 undercut that still closes below support', () => {
     const result = evaluatePotentialSignal(analysis({
         perfect_order: true,
         convergence: { level: 'LOOSE', slope: 'UP' },
@@ -142,9 +177,25 @@ test('keeps a marginal MA50 hold without bullish reaction at WATCH only', () => 
         price_position: { vs_ma10: -7, vs_ma20: -5, vs_ma50: -0.3 }
     }));
 
+    assert.equal(result.isPotential, false);
     assert.equal(result.isReady, false);
-    assert.equal(result.isWatchCandidate, true);
-    assert.equal(result.stage, 'PULLBACK MA50');
+    assert.equal(result.isWatchCandidate, false);
+    assert.equal(result.stage, null);
+    assert.ok(result.warnings.some(warning => warning.includes('Đóng cửa dưới MA50')));
+});
+
+test('distinguishes a near MA50 undercut from a confirmed support hold', () => {
+    const input = analysis({
+        price: { current: 99.8, high: 101, low: 98 },
+        price_position: { vs_ma50: -0.2 }
+    });
+
+    const support = evaluateSupportTest(input, 'MA50', -0.2);
+
+    assert.equal(support.touched, true);
+    assert.equal(support.nearHold, true);
+    assert.equal(support.held, false);
+    assert.equal(support.bullishReaction, false);
 });
 
 test('keeps a mature perfect-order pullback ready but exposes its age risk', () => {
@@ -228,4 +279,19 @@ test('keeps the UI return contract and handles invalid analysis safely', () => {
     }
     assert.equal(evaluatePotentialSignal(null), null);
     assert.equal(evaluatePotentialSignal({ error: 'failed' }), null);
+});
+
+test('explains entry and exit relative to the previous completed session', () => {
+    const entered = comparePotentialSignals(
+        { isPotential: false, status: 'REJECTED', score: 65, warnings: [] },
+        { isPotential: true, status: 'WATCH', stage: 'BREAKOUT EARLY', score: 74, warnings: [] }
+    );
+    const exited = comparePotentialSignals(
+        { isPotential: true, status: 'READY', stage: 'PULLBACK MA20', score: 86, warnings: [] },
+        { isPotential: false, status: 'REJECTED', score: 64, warnings: ['Đóng cửa chưa giữ được MA20'] }
+    );
+
+    assert.equal(entered.type, 'ENTERED');
+    assert.equal(exited.type, 'EXITED');
+    assert.equal(exited.reason, 'Đóng cửa chưa giữ được MA20');
 });

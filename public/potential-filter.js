@@ -36,6 +36,13 @@
         }
     };
 
+    const RULES = {
+        minBreakoutBaseDays: 3,
+        minPerfectOrderDays: 3,
+        breakoutVolumeMin: 1,
+        breakoutVolumeMax: 2.5
+    };
+
     const numberOr = (value, fallback = NaN) => {
         const numeric = Number(value);
         return Number.isFinite(numeric) ? numeric : fallback;
@@ -70,13 +77,17 @@
         // Touch includes a small tolerance for symbols whose tick size keeps the
         // intraday low just above the calculated EMA.
         const touched = Number.isFinite(maPrice) && Number.isFinite(low) && low <= maPrice * 1.008;
-        const held = touched && close >= maPrice * 0.995;
-        const bullishReaction = held && close >= maPrice && (changePercent >= 0 || closeLocation >= 0.55);
+        // Touch may use a small tick-size tolerance, but a support "hold" is
+        // confirmed only when the daily candle actually closes on/above it.
+        const nearHold = touched && close >= maPrice * 0.995;
+        const held = touched && close >= maPrice;
+        const bullishReaction = held && (changePercent >= 0 || closeLocation >= 0.55);
 
         return {
             maName,
             maPrice,
             touched,
+            nearHold,
             held,
             bullishReaction,
             closeLocation
@@ -93,6 +104,7 @@
             convergenceLevel,
             convergenceSlope,
             convergenceContracting,
+            tightDays,
             momentumAlignment,
             ma20Slope,
             ma50Slope,
@@ -105,11 +117,14 @@
         } = context;
 
         const tight = ['SUPER_TIGHT', 'TIGHT'].includes(convergenceLevel);
+        const baseEstablished = tightDays >= RULES.minBreakoutBaseDays;
         const directionOkay = convergenceSlope === 'UP' && ma20Slope > 0 && ma50Slope > 0;
         const momentumOkay = ['BULLISH_ALIGNED', 'MOSTLY_BULLISH'].includes(momentumAlignment);
         const nonBearishMomentum = !['MOSTLY_BEARISH', 'BEARISH_ALIGNED'].includes(momentumAlignment);
         const aboveCluster = context.priceVsMA10 >= 0 && priceVsMA20 >= 0 && priceVsMA50 >= 0;
         const nearCluster = priceVsMA20 <= 3.5 && priceVsMA50 <= 4.5;
+        const volumeConfirmed = volumeRatio >= RULES.breakoutVolumeMin &&
+            volumeRatio <= RULES.breakoutVolumeMax;
 
         structureScore += scorePart(convergenceLevel === 'SUPER_TIGHT', 22, matched, 'MA co cực chặt');
         structureScore += scorePart(convergenceLevel === 'TIGHT', 18, matched, 'MA co chặt');
@@ -119,13 +134,15 @@
         structureScore += scorePart(ma20Slope > 0, 6, matched, 'MA20 dốc lên');
         structureScore += scorePart(ma50Slope > 0, 6, matched, 'MA50 dốc lên');
         structureScore += scorePart(momentumOkay, 8, matched, 'Momentum xác nhận tăng');
+        structureScore += scorePart(baseEstablished, 6, matched, `Nền MA duy trì ${tightDays} phiên`);
 
         entryScore += scorePart(aboveCluster, 15, matched, 'Giá đóng trên cả ba MA');
         entryScore += scorePart(nearCluster, 10, matched, 'Giá chưa rời xa cụm MA');
         entryScore += scorePart(positiveSession, 10, matched, 'Phiên hiện tại xác nhận tăng');
-        entryScore += scorePart(volumeRatio >= 1, 5, matched, 'Volume tham gia');
+        entryScore += scorePart(volumeConfirmed, 5, matched, 'Volume xác nhận, không đột biến');
 
         if (!tight) warnings.push('Ba EMA chưa co đủ chặt');
+        if (!baseEstablished) warnings.push(`Nền MA mới ${tightDays} phiên; cần tối thiểu ${RULES.minBreakoutBaseDays} phiên`);
         if (!directionOkay) warnings.push('Hướng MA chưa ủng hộ breakout tăng');
         if (!momentumOkay) {
             warnings.push(nonBearishMomentum ? 'Momentum chưa đồng thuận' : 'Momentum đang bearish');
@@ -133,12 +150,15 @@
         if (!aboveCluster) warnings.push('Giá chưa đóng trên cả ba MA');
         if (!nearCluster) warnings.push('Giá đã rời xa cụm MA');
         if (!positiveSession) warnings.push('Phiên hiện tại chưa xác nhận tăng');
+        if (!volumeConfirmed) warnings.push(volumeRatio > RULES.breakoutVolumeMax
+            ? 'Volume đột biến, rủi ro phiên phân phối/hưng phấn'
+            : 'Volume chưa xác nhận breakout');
         if (hasDeathCross) warnings.push('Death Cross vừa xuất hiện');
 
         const score = structureScore + entryScore;
-        const isMatch = tight && directionOkay && momentumOkay && aboveCluster &&
-            nearCluster && positiveSession && !hasDeathCross && score >= 80;
-        const isWatch = !isMatch && tight && nonBearishMomentum && aboveCluster &&
+        const isMatch = tight && baseEstablished && directionOkay && momentumOkay && aboveCluster &&
+            nearCluster && positiveSession && volumeConfirmed && !hasDeathCross && score >= 85;
+        const isWatch = !isMatch && tight && baseEstablished && nonBearishMomentum && aboveCluster &&
             nearCluster && !hasDeathCross && score >= 70;
         return {
             stage: STAGES.BREAKOUT_EARLY,
@@ -176,7 +196,7 @@
             ? distance >= -0.5 && distance <= 2.5
             : distance >= -0.5 && distance <= 2.2;
         const trendHealthy = ma50Slope > 0 && ma20Slope > 0;
-        const trendEstablished = perfectOrderDays >= 1;
+        const trendEstablished = perfectOrderDays >= RULES.minPerfectOrderDays;
         const bullishMomentum = ['BULLISH_ALIGNED', 'MOSTLY_BULLISH'].includes(momentumAlignment);
         const momentumOkay = !['MOSTLY_BEARISH', 'BEARISH_ALIGNED'].includes(momentumAlignment);
 
@@ -192,19 +212,23 @@
         entryScore += scorePart(volumeRatio > 0 && volumeRatio <= 1.3, 4, matched, 'Volume không phân phối mạnh');
 
         if (!hasPerfectOrder) warnings.push('Không còn Perfect Order');
-        if (!trendEstablished) warnings.push('Perfect Order vừa hình thành, chưa có độ bền');
+        if (!trendEstablished) warnings.push(
+            `Perfect Order mới ${perfectOrderDays} phiên; cần tối thiểu ${RULES.minPerfectOrderDays} phiên`
+        );
         if (perfectOrderDays > 60) warnings.push(`Perfect Order đã kéo dài ${perfectOrderDays} phiên`);
         if (!trendHealthy) warnings.push('Độ dốc MA20/MA50 chưa tích cực');
         if (!momentumOkay) warnings.push('Momentum không còn bullish');
         if (!support.touched) warnings.push(`Chưa thực sự test ${support.maName}`);
-        else if (!support.held) warnings.push(`Đóng cửa chưa giữ được ${support.maName}`);
+        else if (!support.held) warnings.push(
+            `Đóng cửa dưới ${support.maName} (${distance.toFixed(2)}%); chưa giữ được hỗ trợ`
+        );
         else if (!support.bullishReaction) warnings.push(`Chưa có phản ứng tăng tại ${support.maName}`);
         if (hasDeathCross) warnings.push('Death Cross vừa xuất hiện');
 
         const score = structureScore + entryScore;
         const isMatch = hasPerfectOrder && trendEstablished && trendHealthy && momentumOkay &&
             inEntryBand && support.bullishReaction && !hasDeathCross && score >= 75;
-        const isWatch = !isMatch && hasPerfectOrder && trendHealthy && momentumOkay &&
+        const isWatch = !isMatch && hasPerfectOrder && trendEstablished && trendHealthy && momentumOkay &&
             inEntryBand && support.held && !hasDeathCross && score >= 70;
         return {
             stage: isMA50 ? STAGES.PULLBACK_MA50 : STAGES.PULLBACK_MA20,
@@ -238,6 +262,7 @@
             convergenceLevel: analysis.convergence?.level || 'NA',
             convergenceSlope: analysis.convergence?.slope || 'NA',
             convergenceContracting: analysis.convergence?.is_contracting !== false,
+            tightDays: Math.max(0, Math.floor(numberOr(analysis.convergence?.tight_days, 0))),
             momentumAlignment: analysis.momentum?.alignment || 'NEUTRAL',
             ma20Slope: numberOr(analysis.momentum?.ma20?.slope, -Infinity),
             ma50Slope: numberOr(analysis.momentum?.ma50?.slope, -Infinity),
@@ -312,6 +337,7 @@
             marketReady,
             marketConfirmed,
             marketBreadth: hasMarketContext ? marketContext : null,
+            dataAsOf: analysis.data_as_of || null,
             statusPriority: isReady ? 2 : (isWatchCandidate ? 1 : 0),
             stagePriority: meta?.priority ?? 0,
             matched: selected.matched,
@@ -328,10 +354,57 @@
         };
     }
 
+    function summarizePotentialSignal(signal) {
+        if (!signal) return null;
+        return {
+            isPotential: !!signal.isPotential,
+            status: signal.status || 'REJECTED',
+            stage: signal.stage || null,
+            score: numberOr(signal.score, 0),
+            matched: Array.isArray(signal.matched) ? signal.matched.slice() : [],
+            warnings: Array.isArray(signal.warnings) ? signal.warnings.slice() : [],
+            dataAsOf: signal.dataAsOf || null
+        };
+    }
+
+    function comparePotentialSignals(previous, current) {
+        const before = summarizePotentialSignal(previous);
+        const after = summarizePotentialSignal(current);
+        if (!before || !after) return null;
+
+        if (!before.isPotential && after.isPotential) {
+            return { type: 'ENTERED', label: 'Mới vào', color: 'blue', reason: after.matched[0] || null };
+        }
+        if (before.isPotential && !after.isPotential) {
+            return {
+                type: 'EXITED',
+                label: 'Rời Potential',
+                color: 'red',
+                reason: after.warnings[0] || 'Không còn đạt ngưỡng setup'
+            };
+        }
+        if (before.isPotential && after.isPotential &&
+            (before.status !== after.status || before.stage !== after.stage)) {
+            return {
+                type: 'CHANGED',
+                label: `${before.status} → ${after.status}`,
+                color: after.status === 'READY' ? 'green' : 'amber-darken-2',
+                reason: before.stage !== after.stage ? `${before.stage} → ${after.stage}` : null
+            };
+        }
+        if (before.isPotential && after.isPotential) {
+            return { type: 'STABLE', label: 'Còn giữ', color: 'grey', reason: null };
+        }
+        return null;
+    }
+
     return {
         STAGES,
         STAGE_META,
+        RULES,
         evaluatePotentialSignal,
-        evaluateSupportTest
+        evaluateSupportTest,
+        summarizePotentialSignal,
+        comparePotentialSignals
     };
 });

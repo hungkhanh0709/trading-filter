@@ -11,9 +11,9 @@ def _skip_agent_file_setup(*args, **kwargs):
 _original_agent_setup = vnai.async_setup_agent_environment
 vnai.async_setup_agent_environment = _skip_agent_file_setup
 try:
-    from vnstock import Quote
+    from vnstock import Quote, Reference
 finally:
     vnai.async_setup_agent_environment = _original_agent_setup
 
 
-__all__ = ["Quote"]
+__all__ = ["Quote", "Reference"]

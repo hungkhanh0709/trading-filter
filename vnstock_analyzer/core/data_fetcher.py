@@ -6,10 +6,15 @@ import sys
 import time
 import logging
 
-from .vnstock_client import Quote
+import pandas as pd
+
+from .vnstock_client import Quote, Reference
 
 
-HISTORY_COUNT_BACK = 250
+# TEMA50 first becomes valid after 148 bars. Fetching 500 leaves more than 350
+# additional updates for all three EMA legs to converge toward a long-history
+# chart while keeping each screening request reasonably small.
+HISTORY_COUNT_BACK = 500
 
 
 class DataFetcher:
@@ -163,7 +168,18 @@ class DataFetcher:
                     )
             
             if history is not None and not history.empty:
+                dividend_events = self._fetch_dividend_events(history)
+                history, adjustments = self._restore_unadjusted_cash_dividends(
+                    history,
+                    dividend_events,
+                )
                 self.data_cache['history'] = history
+                self.data_cache['price_adjustments'] = adjustments
+                self.data_cache['price_adjustment_status'] = (
+                    'UNADJUSTED_RESTORED'
+                    if isinstance(dividend_events, pd.DataFrame)
+                    else 'SOURCE_ADJUSTMENT_UNKNOWN'
+                )
                 print(f"  ✅ Lấy được {len(history)} ngày giao dịch", file=sys.stderr)
                 has_critical_data = True
             else:
@@ -181,6 +197,88 @@ class DataFetcher:
         except Exception as e:
             print(f"❌ Lỗi nghiêm trọng khi fetch data: {e}", file=sys.stderr)
             return False
+
+    def _fetch_dividend_events(self, history):
+        """Fetch cash-dividend events needed to restore unadjusted OHLC."""
+        if history is None or history.empty or 'time' not in history.columns:
+            return None
+        try:
+            dates = pd.to_datetime(history['time'], errors='coerce').dropna()
+            if dates.empty:
+                return None
+            events = Reference().events(self.symbol)
+            return self._retry_with_backoff(
+                events.calendar,
+                "Sự kiện cổ tức",
+                start=dates.min().date().isoformat(),
+                end=dates.max().date().isoformat(),
+                event_type='DIVIDEND',
+                source='vci',
+                max_attempts=1,
+                report_final_error=False,
+            )
+        except Exception:
+            return None
+
+    @staticmethod
+    def _restore_unadjusted_cash_dividends(history, events):
+        """Reverse VCI/KBS back-adjustments to match unadjusted chart prices.
+
+        For a cash dividend D, providers back-adjust all earlier OHLC values by
+        ``(previous_close - D) / previous_close``. Events are reversed newest
+        first so multiple dividends compose correctly.
+        """
+        if (
+            history is None or history.empty or events is None or
+            not isinstance(events, pd.DataFrame) or events.empty or
+            'exright_date' not in events.columns or
+            'value_per_share' not in events.columns
+        ):
+            return history, []
+
+        result = history.copy()
+        times = pd.to_datetime(result['time'], errors='coerce')
+        event_rows = events.copy()
+        event_rows['exright_date'] = pd.to_datetime(
+            event_rows['exright_date'], errors='coerce'
+        )
+        event_rows['value_per_share'] = pd.to_numeric(
+            event_rows['value_per_share'], errors='coerce'
+        )
+        event_rows = event_rows.dropna(subset=['exright_date', 'value_per_share'])
+        event_rows = event_rows[event_rows['value_per_share'] > 0]
+        if 'category' in event_rows.columns:
+            event_rows = event_rows[event_rows['category'] == 'DIVIDEND']
+
+        cash_by_date = event_rows.groupby('exright_date')['value_per_share'].sum()
+        adjustments = []
+        price_columns = [column for column in ('open', 'high', 'low', 'close') if column in result.columns]
+        for ex_date, cash_vnd in cash_by_date.sort_index(ascending=False).items():
+            prior_mask = times < ex_date
+            if not prior_mask.any():
+                continue
+            adjusted_previous_close = pd.to_numeric(
+                result.loc[prior_mask, 'close'], errors='coerce'
+            ).dropna()
+            if adjusted_previous_close.empty:
+                continue
+
+            previous_close = float(adjusted_previous_close.iloc[-1])
+            cash_in_price_units = float(cash_vnd) / 1000.0
+            raw_previous_close = previous_close + cash_in_price_units
+            if previous_close <= 0 or raw_previous_close <= 0:
+                continue
+            factor = previous_close / raw_previous_close
+            result.loc[prior_mask, price_columns] = (
+                result.loc[prior_mask, price_columns].astype(float) / factor
+            )
+            adjustments.append({
+                'exright_date': ex_date.date().isoformat(),
+                'cash_dividend_vnd': float(cash_vnd),
+                'factor': round(factor, 10),
+            })
+
+        return result, adjustments
     
     def _fetch_optional_data(self):
         """Fetch optional data - không ảnh hưởng nếu fail"""

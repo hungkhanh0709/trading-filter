@@ -32,7 +32,7 @@ def analyze_volume_trend(df, lookback_days=20):
             'tooltip': str
         }
     """
-    if df is None or len(df) < lookback_days or 'volume' not in df.columns:
+    if df is None or len(df) < lookback_days + 1 or 'volume' not in df.columns:
         return {
             'current_volume': 0,
             'avg_volume': 0,
@@ -47,7 +47,9 @@ def analyze_volume_trend(df, lookback_days=20):
         }
     
     # Get recent volume data
-    recent_df = df.tail(lookback_days)
+    # Compare the signal candle with the preceding baseline. Including the
+    # current candle in its own average understates genuine volume expansion.
+    recent_df = df.iloc[-(lookback_days + 1):-1]
     current_volume = df.iloc[-1]['volume']
     avg_volume = recent_df['volume'].mean()
     

@@ -6,7 +6,7 @@ Import pure functions from modules:
 - ma_momentum: analyze_momentum
 - volume_analyzer: analyze_volume_trend, check_convergence_volume_signal
 
-Uses EMA (Exponential Moving Average) to match TradingView default.
+Uses three EMA lines (10/20/50) to match the TradingView script named TEMA.
 """
 
 from vnstock_analyzer.core.constants import VN_COLORS, VN_ICONS
@@ -36,7 +36,7 @@ class MAAnalyzer:
         """
         Args:
             df: DataFrame đã tính sẵn các MA (MA10, MA20, MA50)
-            Note: Dùng EMA (Exponential MA) để match TradingView
+            Note: Dùng ba EMA 10/20/50 để match script TradingView tên TEMA
         """
         self.df = df
     
@@ -188,6 +188,13 @@ class MAAnalyzer:
                 'tooltip': momentum.get('tooltip', '')
             },
             'price_position': {
+                'close': round(price_position.get('close', 0), 4),
+                'ma10': round(price_position.get('ma10', 0), 4),
+                'ma20': round(price_position.get('ma20', 0), 4),
+                'ma50': round(price_position.get('ma50', 0), 4),
+                'ma_type': 'EMA',
+                'ma_source': 'close',
+                'ema_seed': 'SMA',
                 'vs_ma10': round(price_position.get('vs_ma10', 0), 2),
                 'vs_ma20': round(price_position.get('vs_ma20', 0), 2),
                 'vs_ma50': round(price_position.get('vs_ma50', 0), 2),
@@ -383,8 +390,8 @@ class MAAnalyzer:
         total_range = high - low
         
         # Volume check (not abnormal spike)
-        if len(self.df) >= 20:
-            avg_volume = self.df.iloc[-20:]['volume'].mean()
+        if len(self.df) >= 21:
+            avg_volume = self.df.iloc[-21:-1]['volume'].mean()
             volume_ratio = volume / avg_volume if avg_volume > 0 else 1
             is_volume_ok = volume_ratio <= 2.5  # Not more than 2.5x average
         else:
@@ -476,10 +483,11 @@ class MAAnalyzer:
         
         # Build tooltip with wick signals
         tooltip = (
-            f"<strong>📍 Vị trí giá</strong><br>"
-            f"vs MA10: {dist_to_ma10:+.1f}%<br>"
-            f"vs MA20: {dist_to_ma20:+.1f}%<br>"
-            f"vs MA50: {dist_to_ma50:+.1f}%<br>"
+            f"<strong>📍 Giá & EMA (nghìn đồng)</strong><br>"
+            f"Close: {price:.1f}<br>"
+            f"EMA10: {ma10:.1f} ({dist_to_ma10:+.1f}%)<br>"
+            f"EMA20: {ma20:.1f} ({dist_to_ma20:+.1f}%)<br>"
+            f"EMA50: {ma50:.1f} ({dist_to_ma50:+.1f}%)<br>"
         )
         
         # Add wick rejection signals
@@ -488,6 +496,10 @@ class MAAnalyzer:
             tooltip += "<br>".join(wick_signals)
         
         return {
+            'close': price,
+            'ma10': ma10,
+            'ma20': ma20,
+            'ma50': ma50,
             'vs_ma50': dist_to_ma50,
             'vs_ma20': dist_to_ma20,
             'vs_ma10': dist_to_ma10,

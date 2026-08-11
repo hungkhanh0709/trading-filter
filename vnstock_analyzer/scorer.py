@@ -3,7 +3,8 @@ Stock Scorer - Main orchestrator for stock analysis
 """
 
 import sys
-from datetime import datetime
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
 
 from .core import DataFetcher
 from .analyzers import (
@@ -84,6 +85,17 @@ class StockScorer:
                 'symbol': self.symbol,
                 'analyzed_at': datetime.now().isoformat()
             }
+
+        # Base daily MA decisions on a completed candle. Providers can expose
+        # today's still-changing bar during the session, which otherwise makes
+        # Potential membership and volume confirmation flip intraday.
+        df_history = self._completed_daily_history(df_history)
+        if df_history.empty:
+            return {
+                'error': 'Không có phiên giao dịch đã hoàn tất',
+                'symbol': self.symbol,
+                'analyzed_at': datetime.now().isoformat()
+            }
         
         # Run analyzers
         self.logger.info("Running analysis modules...")
@@ -120,6 +132,13 @@ class StockScorer:
             result = {
                 'symbol': self.symbol,
                 'analyzed_at': datetime.now().isoformat(),
+                'data_as_of': self._history_date(df_history.iloc[-1]),
+                'data_source': self.fetcher.active_source,
+                'data_price_mode': (
+                    self.fetcher.get_data('price_adjustment_status') or
+                    'SOURCE_ADJUSTMENT_UNKNOWN'
+                ),
+                'cash_dividend_adjustments': self.fetcher.get_data('price_adjustments') or [],
                 'perfect_order': ma_analysis.get('perfect_order', False),
                 
                 # Price data grouped as object
@@ -153,3 +172,33 @@ class StockScorer:
                 'symbol': self.symbol,
                 'analyzed_at': datetime.now().isoformat()
             }
+
+    @staticmethod
+    def _history_date(row):
+        value = row.get('time') if hasattr(row, 'get') else None
+        if value is None:
+            return None
+        try:
+            return value.date().isoformat()
+        except AttributeError:
+            return str(value)[:10]
+
+    @staticmethod
+    def _completed_daily_history(df_history, now=None):
+        """Exclude today's unfinished daily candle before 15:00 Vietnam time."""
+        if df_history is None or df_history.empty or 'time' not in df_history.columns:
+            return df_history
+
+        vietnam_now = now or datetime.now(ZoneInfo('Asia/Ho_Chi_Minh'))
+        latest = df_history.iloc[-1]['time']
+        try:
+            latest_date = latest.date()
+        except AttributeError:
+            try:
+                latest_date = datetime.fromisoformat(str(latest)).date()
+            except ValueError:
+                return df_history
+
+        if latest_date == vietnam_now.date() and vietnam_now.time() < time(15, 0):
+            return df_history.iloc[:-1].copy()
+        return df_history
