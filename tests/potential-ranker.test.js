@@ -77,36 +77,59 @@ test('a cluster no wider than one percent adds one star', () => {
     assert.equal(wide.stars, 0);
 });
 
-test('pullback near MA10 adds one support star', () => {
+test('pullback near MA10 adds one support star after Perfect Order', () => {
     const result = evaluatePotentialSignal(analysis({
+        perfect_order: true,
         price_position: { ma10: 100, ma20: 94, ma50: 88 }
     }));
 
     assert.equal(result.supportDepth, 1);
     assert.equal(result.nearestSupport, 'MA10');
-    assert.deepEqual(result.achieved, ['NEAR_MA10']);
+    assert.deepEqual(result.achieved, ['PERFECT_ORDER', 'NEAR_MA10']);
+    assert.equal(result.stars, 2);
 });
 
-test('pullback near MA20 cumulatively includes MA10 for two stars', () => {
+test('pullback near MA20 cumulatively includes MA10 after Perfect Order', () => {
     const result = evaluatePotentialSignal(analysis({
+        perfect_order: true,
         price_position: { ma10: 104, ma20: 100, ma50: 88 }
     }));
 
     assert.equal(result.supportDepth, 2);
     assert.equal(result.nearestSupport, 'MA20');
-    assert.deepEqual(result.achieved, ['NEAR_MA10', 'NEAR_MA20']);
-    assert.equal(result.stars, 2);
+    assert.deepEqual(result.achieved, ['PERFECT_ORDER', 'NEAR_MA10', 'NEAR_MA20']);
+    assert.equal(result.stars, 3);
 });
 
-test('pullback near MA50 cumulatively earns all three support stars', () => {
+test('pullback near MA50 cumulatively earns all three support stars after Perfect Order', () => {
     const result = evaluatePotentialSignal(analysis({
+        perfect_order: true,
         price_position: { ma10: 110, ma20: 105, ma50: 100 }
     }));
 
     assert.equal(result.supportDepth, 3);
     assert.equal(result.nearestSupport, 'MA50');
-    assert.deepEqual(result.achieved, ['NEAR_MA10', 'NEAR_MA20', 'NEAR_MA50']);
-    assert.equal(result.stars, 3);
+    assert.deepEqual(result.achieved, [
+        'PERFECT_ORDER', 'NEAR_MA10', 'NEAR_MA20', 'NEAR_MA50'
+    ]);
+    assert.equal(result.stars, 4);
+});
+
+test('proximity to any MA cannot earn pullback stars without Perfect Order', () => {
+    const cases = [
+        { ma10: 100, ma20: 94, ma50: 88 },
+        { ma10: 104, ma20: 100, ma50: 88 },
+        { ma10: 110, ma20: 105, ma50: 100 }
+    ];
+
+    for (const pricePosition of cases) {
+        const result = evaluatePotentialSignal(analysis({ price_position: pricePosition }));
+
+        assert.equal(result.stars, 0);
+        assert.equal(result.supportDepth, 0);
+        assert.equal(result.nearestSupport, null);
+        assert.match(result.tooltip, /cần Perfect Order/);
+    }
 });
 
 test('support proximity uses the tradable tick for NVL-like prices', () => {
@@ -125,11 +148,67 @@ test('support proximity uses the tradable tick for NVL-like prices', () => {
 
 test('a close more than half a percent below support earns no proximity star', () => {
     const result = evaluatePotentialSignal(analysis({
+        perfect_order: true,
         price_position: { ma10: 100.6, ma20: 95, ma50: 90 }
     }));
 
     assert.equal(result.supportDepth, 0);
+    assert.equal(result.stars, 1);
+});
+
+test('TCB-like resistance test earns no pullback star without Perfect Order', () => {
+    const result = evaluatePotentialSignal(analysis({
+        price: { current: 31, tickSize: 0.05 },
+        price_position: { ma10: 30.9802, ma20: 30.7594, ma50: 31.1317 },
+        convergence: { convergence_pct: 1.21 },
+        golden_cross: { recent_crosses: [{ type: 'MA10_MA20', days_ago: 4 }] }
+    }));
+
     assert.equal(result.stars, 0);
+    assert.equal(result.nearestSupport, null);
+});
+
+test('DSE-like tight cluster keeps only its cluster star without Perfect Order', () => {
+    const result = evaluatePotentialSignal(analysis({
+        price: { current: 22.25, tickSize: 0.05 },
+        price_position: { ma10: 22.2752, ma20: 22.2821, ma50: 22.3638 },
+        convergence: { convergence_pct: 0.4 },
+        golden_cross: { recent_crosses: [{ type: 'MA10_MA20', days_ago: 6 }] }
+    }));
+
+    assert.equal(result.stars, 1);
+    assert.deepEqual(result.achieved, ['TIGHT_CLUSTER']);
+    assert.equal(result.nearestSupport, null);
+});
+
+test('HDB-like overlapping ranges select only the nearest MA10 pullback tier', () => {
+    const result = evaluatePotentialSignal(analysis({
+        perfect_order: true,
+        price: { current: 26.7, tickSize: 0.05 },
+        price_position: { ma10: 26.6917, ma20: 26.5468, ma50: 26.3694 },
+        convergence: { convergence_pct: 1.22 },
+        golden_cross: { recent_crosses: [{ type: 'MA20_MA50', days_ago: 8 }] }
+    }));
+
+    assert.equal(result.stars, 2);
+    assert.equal(result.supportDepth, 1);
+    assert.equal(result.nearestSupport, 'MA10');
+    assert.deepEqual(result.achieved, ['PERFECT_ORDER', 'NEAR_MA10']);
+    assert.deepEqual(
+        result.supportChecks.map(check => check.isNear),
+        [true, true, true]
+    );
+});
+
+test('equal pullback distances conservatively select the shallower MA tier', () => {
+    const result = evaluatePotentialSignal(analysis({
+        perfect_order: true,
+        price_position: { ma10: 100, ma20: 100, ma50: 90 }
+    }));
+
+    assert.equal(result.supportDepth, 1);
+    assert.equal(result.nearestSupport, 'MA10');
+    assert.deepEqual(result.achieved, ['PERFECT_ORDER', 'NEAR_MA10']);
 });
 
 test('NVL-like setup does not earn the strict one-percent cluster star', () => {
@@ -148,7 +227,6 @@ test('NVL-like setup does not earn the strict one-percent cluster star', () => {
     assert.equal(result.stars, 5);
     assert.equal(result.badge, '★★★★★');
     assert.equal(result.nearestSupport, 'MA50');
-    assert.match(result.tooltip, /không lọc, không trừ điểm/);
 });
 
 test('GMD-like stretched setup receives only its Perfect Order star', () => {

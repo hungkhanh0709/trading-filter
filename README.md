@@ -21,11 +21,11 @@ Sáu tiêu chí, mỗi tiêu chí đúng cộng `1★`:
 1. Perfect Order: EMA10 > EMA20 > EMA50.
 2. Golden Cross EMA20/50 trong tối đa 5 phiên; EMA10/20 chỉ để quan sát.
 3. Bandwidth EMA10/20/50 không quá 1%.
-4. Pullback gần EMA10.
-5. Pullback đạt tầng EMA20.
-6. Pullback đạt tầng EMA50.
+4. Perfect Order + pullback gần EMA10.
+5. Perfect Order + pullback đạt tầng EMA20.
+6. Perfect Order + pullback đạt tầng EMA50.
 
-Ba tầng pullback cộng dồn. Đạt EMA50 nhận cả ba sao EMA10/20/50. Chi tiết ngưỡng và contract nằm trong [docs/potential.md](docs/potential.md).
+Ba tầng pullback chỉ cộng sao khi đã có Perfect Order. Hệ thống chọn EMA gần giá nhất rồi cộng dồn theo tầng; đạt EMA50 nhận cả ba sao EMA10/20/50. Chi tiết ngưỡng và contract nằm trong [docs/potential.md](docs/potential.md).
 
 ## Dữ liệu và API
 

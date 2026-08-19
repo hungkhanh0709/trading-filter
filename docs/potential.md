@@ -9,11 +9,11 @@ Mỗi tiêu chí đạt được cộng đúng `1★`; không có điểm âm, h
 1. Perfect Order: EMA10 > EMA20 > EMA50.
 2. Golden Cross EMA20/50 mới xuất hiện trong tối đa 5 phiên.
 3. Cụm EMA10/20/50 rất chặt: bandwidth không quá 1%.
-4. Giá pullback gần EMA10.
-5. Giá pullback đạt tầng EMA20.
-6. Giá pullback đạt tầng EMA50.
+4. Đã có Perfect Order và giá pullback gần EMA10.
+5. Đã có Perfect Order và giá pullback đạt tầng EMA20.
+6. Đã có Perfect Order và giá pullback đạt tầng EMA50.
 
-Pullback là thang cộng dồn. Gần EMA10 nhận một sao; đạt EMA20 nhận cả sao EMA10 và EMA20; đạt EMA50 nhận đủ ba sao EMA10, EMA20 và EMA50. “Gần” nghĩa là giá đóng cửa nằm từ 0,5% dưới đến 1,5% trên EMA tương ứng. EMA được quy về bước giá giao dịch khi so sánh.
+Pullback là thang cộng dồn có điều kiện. Chỉ khi đã có Perfect Order, hệ thống chọn duy nhất EMA gần giá nhất trong vùng hợp lệ: EMA10 nhận một sao; EMA20 nhận cả sao EMA10 và EMA20; EMA50 nhận đủ ba sao EMA10, EMA20 và EMA50. Việc chọn một EMA duy nhất ngăn các vùng khoảng cách chồng lấn cộng quá nhiều sao khi cụm EMA đang sát nhau; nếu hai EMA cách giá bằng nhau, tầng nông hơn được ưu tiên thận trọng. Nếu chưa có Perfect Order, khoảng cách giá–EMA vẫn được tính để đối chiếu nhưng không cộng sao pullback, vì EMA lúc này chưa được xác nhận là hỗ trợ động. “Gần” nghĩa là giá đóng cửa nằm từ 0,5% dưới đến 1,5% trên EMA tương ứng. EMA được quy về bước giá giao dịch khi so sánh.
 
 Các trường volume, momentum, market breadth, Death Cross, tuổi Perfect Order và trạng thái nến không tham gia cộng/trừ sao ở giai đoạn quan sát này.
 

@@ -15,6 +15,7 @@ from vnstock_analyzer.core.price_normalizer import (
     price_tick,
     round_price_to_tick,
 )
+from vnstock_analyzer.core.vnstock_client import _safe_hosting_service
 from vnstock_analyzer.stock_analyzer import StockAnalyzer
 
 
@@ -301,8 +302,19 @@ class StockAnalyzerContractTests(unittest.TestCase):
 
 
 class DependencyContractTests(unittest.TestCase):
-    def test_verified_vnstock_version_is_installed(self):
-        self.assertEqual(importlib.metadata.version("vnstock"), "4.0.5")
+    def test_local_hosting_detector_workaround_is_narrow(self):
+        def broken_detector():
+            raise UnboundLocalError("hosting_service")
+
+        self.assertEqual(
+            _safe_hosting_service(broken_detector),
+            "Local or Unknown",
+        )
+        self.assertEqual(_safe_hosting_service(lambda: "Google Colab"), "Google Colab")
+
+    def test_verified_vnstock_ecosystem_versions_are_installed(self):
+        self.assertEqual(importlib.metadata.version("vnstock"), "4.0.6")
+        self.assertEqual(importlib.metadata.version("vnai"), "2.5.7")
 
 
 if __name__ == "__main__":

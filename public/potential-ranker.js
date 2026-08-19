@@ -6,7 +6,8 @@
     'use strict';
 
     // Potential is deliberately an additive observation model. There are no
-    // rejection gates, negative points or hidden weights.
+    // symbol rejection gates, negative points or hidden weights. Pullback
+    // criteria have one explicit prerequisite: an existing Perfect Order.
     const RULES = Object.freeze({
         freshGoldenCrossDays: 5,
         tightClusterMaxPct: 1,
@@ -56,6 +57,15 @@
         };
     }
 
+    function selectNearestSupport(supportChecks) {
+        return supportChecks
+            .filter(check => check.isNear)
+            .sort((a, b) => {
+                const distanceDiff = Math.abs(a.distancePct) - Math.abs(b.distancePct);
+                return distanceDiff !== 0 ? distanceDiff : a.depth - b.depth;
+            })[0] || null;
+    }
+
     function getFreshMa2050GoldenCross(analysis) {
         const recentCrosses = Array.isArray(analysis.golden_cross?.recent_crosses)
             ? analysis.golden_cross.recent_crosses
@@ -76,10 +86,10 @@
     function evaluatePotentialSignal(analysis) {
         if (!analysis || analysis.error) return null;
 
-        const supportChecks = SUPPORTS.map(support => evaluateSupportProximity(analysis, support));
-        const deepestSupport = supportChecks.filter(check => check.isNear).at(-1) || null;
-        const supportDepth = deepestSupport?.depth || 0;
         const perfectOrder = !!analysis.perfect_order;
+        const supportChecks = SUPPORTS.map(support => evaluateSupportProximity(analysis, support));
+        const nearestSupport = perfectOrder ? selectNearestSupport(supportChecks) : null;
+        const supportDepth = nearestSupport?.depth || 0;
         const freshGoldenCross = getFreshMa2050GoldenCross(analysis);
         const convergencePct = numberOr(analysis.convergence?.convergence_pct, Infinity);
         const tightCluster = convergencePct <= RULES.tightClusterMaxPct;
@@ -104,14 +114,16 @@
                     : 'Cụm MA rất chặt',
                 met: tightCluster
             },
-            ...SUPPORTS.map(support => {
-                const check = supportChecks.find(item => item.name === support.name);
+            ...supportChecks.map(support => {
                 return {
                     key: `NEAR_${support.name}`,
-                    label: support.depth <= supportDepth
-                        ? `Pullback đạt tầng ${support.name}${deepestSupport?.name === support.name ? ` (${check.distancePct.toFixed(2)}%)` : ''}`
+                    label: !perfectOrder
+                        ? `Pullback đạt tầng ${support.name} (cần Perfect Order)`
+                        : support.depth <= supportDepth
+                        ? `Pullback đạt tầng ${support.name}${nearestSupport?.name === support.name ? ` (${support.distancePct.toFixed(2)}%)` : ''}`
                         : `Pullback đạt tầng ${support.name}`,
-                    // Cumulative ladder: reaching MA50 includes MA10 and MA20.
+                    // The single nearest MA selects the tier; deeper tiers still
+                    // include shallower ones through the cumulative ladder.
                     met: support.depth <= supportDepth
                 };
             })
@@ -135,7 +147,7 @@
             criteria,
             achieved: achieved.map(criterion => criterion.key),
             supportDepth,
-            nearestSupport: deepestSupport?.name || null,
+            nearestSupport: nearestSupport?.name || null,
             supportChecks
         };
     }

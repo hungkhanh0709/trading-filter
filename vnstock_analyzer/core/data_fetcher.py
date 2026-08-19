@@ -142,7 +142,7 @@ class DataFetcher:
 
             if history is None and self.fallback_source:
                 print(
-                    f"  ⚠️  {self.source} không phản hồi, chuyển sang "
+                    f"  ⚠️  {self.source} không lấy được dữ liệu, chuyển sang "
                     f"{self.fallback_source}...",
                     file=sys.stderr
                 )

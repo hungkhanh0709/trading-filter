@@ -104,24 +104,6 @@
                                 <v-text-field v-model="search" label="Tìm kiếm mã" prepend-inner-icon="mdi-magnify"
                                     variant="outlined" hide-details single-line class="ma-4"
                                     density="compact"></v-text-field>
-                                <v-alert v-if="selectedExchange === 'POTENTIAL'" type="info" variant="tonal"
-                                    class="mx-4 mb-4" density="compact">
-                                    <div style="font-weight: 600;">
-                                        {{ potentialStats.analyzed }}/{{ potentialStats.total }} mã đã phân tích ·
-                                        không filter, chỉ xếp hạng theo số sao
-                                    </div>
-                                    <div style="font-size: 0.85em; margin-top: 4px;">
-                                        ★ Perfect Order · ★ Golden Cross MA20/50 mới · ★ cụm MA ≤ 1% ·
-                                        pullback MA10/20/50 cộng dồn tối đa ★★★ ·
-                                        Dữ liệu đến phiên {{ potentialAsOf || '-' }}
-                                    </div>
-                                    <div v-if="potentialStarSummary.length" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
-                                        <v-chip v-for="group in potentialStarSummary" :key="group.stars" size="small"
-                                            color="amber-darken-2" variant="tonal">
-                                            {{ group.stars }}★: {{ group.count }} mã
-                                        </v-chip>
-                                    </div>
-                                </v-alert>
                             </template>
 
                             <!-- Custom Header for Price Column with Stats -->
@@ -435,27 +417,6 @@
                         neutral,
                         total: up + down + neutral
                     };
-                },
-                potentialStats() {
-                    const symbols = this.matrixData?.symbols || [];
-                    const analyzed = symbols.filter(symbol => !!symbol.analysis).length;
-                    return { analyzed, total: symbols.length };
-                },
-                potentialStarSummary() {
-                    const counts = new Map();
-                    (this.matrixData?.symbols || []).forEach(symbol => {
-                        const stars = symbol.potentialSignal?.stars;
-                        if (Number.isFinite(stars)) counts.set(stars, (counts.get(stars) || 0) + 1);
-                    });
-                    return Array.from(counts, ([stars, count]) => ({ stars, count }))
-                        .sort((a, b) => b.stars - a.stars);
-                },
-                potentialAsOf() {
-                    const dates = (this.matrixData?.symbols || [])
-                        .map(symbol => symbol.analysis?.data_as_of)
-                        .filter(Boolean)
-                        .sort();
-                    return dates.length ? dates[dates.length - 1] : null;
                 },
                 matrixHeaders() {
                     const headers = [
