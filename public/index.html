@@ -142,9 +142,8 @@
                                 <div v-if="item.potentialSignal" style="display: flex; flex-direction: column; align-items: center; gap: 3px;">
                                 <v-tooltip location="top">
                                     <template v-slot:activator="{ props }">
-                                        <v-chip v-bind="props" :color="item.potentialSignal.color"
-                                            :prepend-icon="item.potentialSignal.icon" size="small"
-                                            class="text-white font-weight-bold">
+                                        <v-chip v-bind="props" color="amber-darken-2" variant="tonal"
+                                            size="small" class="font-weight-bold">
                                             {{ item.potentialSignal.badge }}
                                         </v-chip>
                                     </template>
@@ -379,10 +378,7 @@
 
                     // Default sort
                     if (!this.sortBy || this.sortBy.length === 0) {
-                        if (this.selectedExchange === 'POTENTIAL') {
-                            return this.applySortByPotential(symbols);
-                        }
-                        return this.applySortByPriceVsMa50(symbols);
+                        return this.applySortByPotential(symbols);
                     }
 
                     // Use custom sorting based on clicked column
@@ -485,9 +481,7 @@
                         },
                     ];
 
-                    return this.selectedExchange === 'POTENTIAL'
-                        ? headers
-                        : headers.filter(header => header.key !== 'potential');
+                    return headers;
                 }
             },
             mounted() {
@@ -507,18 +501,6 @@
                 }
             },
             methods: {
-                /**
-                 * Apply priority-based sorting (default when no column clicked)
-                 */
-                applySortByPriceVsMa50(symbols) {
-                    return symbols.sort((a, b) => {
-                        const aPriceVsMA50 = Math.abs(a.analysis?.price_position?.vs_ma50);
-                        const bPriceVsMA50 = Math.abs(b.analysis?.price_position?.vs_ma50);
-                        // Closer to MA50 means higher priority
-                        return aPriceVsMA50 - bPriceVsMA50;
-                    });
-                },
-
                 applySortByPotential(symbols) {
                     return symbols.sort(PotentialRanker.comparePotentialRows);
                 },

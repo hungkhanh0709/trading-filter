@@ -80,7 +80,7 @@
     }
 
     function starText(stars) {
-        return stars > 0 ? '★'.repeat(stars) : '0★';
+        return '★'.repeat(stars);
     }
 
     function evaluatePotentialSignal(analysis) {
@@ -131,19 +131,19 @@
 
         const stars = criteria.reduce((total, criterion) => total + criterion.stars, 0);
         const achieved = criteria.filter(criterion => criterion.met);
+        const scoreText = `${stars}/${criteria.length}`;
+        const badge = stars > 0 ? starText(stars) : scoreText;
         const tooltip = [
-            `<strong>${starText(stars)} · ${stars}/${criteria.length} tiêu chí</strong>`,
+            `<strong>${stars > 0 ? `${badge} · ` : ''}${scoreText} tiêu chí</strong>`,
             ...criteria.map(criterion => `${criterion.met ? '★' : '☆'} ${criterion.label}`),
         ].join('<br>');
 
         return {
             stars,
             maxStars: criteria.length,
-            badge: starText(stars),
-            label: `${starText(stars)} · ${stars}/${criteria.length}`,
+            badge,
+            label: stars > 0 ? `${badge} · ${scoreText}` : scoreText,
             tooltip,
-            color: stars >= 5 ? 'amber-darken-2' : (stars >= 3 ? 'blue' : 'grey'),
-            icon: 'mdi-star',
             criteria,
             achieved: achieved.map(criterion => criterion.key),
             supportDepth,

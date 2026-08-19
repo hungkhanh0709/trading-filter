@@ -34,8 +34,13 @@ test('keeps every valid analysis in Potential even when it earns zero stars', ()
     const result = evaluatePotentialSignal(analysis());
 
     assert.equal(result.stars, 0);
-    assert.equal(result.badge, '0★');
+    assert.equal(result.badge, '0/6');
+    assert.equal(result.label, '0/6');
+    assert.match(result.tooltip, /<strong>0\/6 tiêu chí<\/strong>/);
+    assert.doesNotMatch(result.tooltip, /0★/);
     assert.equal(result.criteria.length, 6);
+    assert.equal('color' in result, false);
+    assert.equal('icon' in result, false);
 });
 
 test('Perfect Order adds exactly one star', () => {

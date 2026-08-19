@@ -21,7 +21,7 @@ Golden Cross EMA10/20 vẫn được hiển thị như dữ liệu chẩn đoán
 
 ## Hiển thị và sắp xếp
 
-- Mọi mã từ universe `POTENTIAL` đều hiển thị, kể cả `0★` và mã chưa phân tích.
+- Mọi mã từ universe `POTENTIAL` đều hiển thị; `0/6` là đã phân tích nhưng không đạt tiêu chí, còn `-` là chưa có kết quả.
 - Sắp xếp mặc định theo số sao giảm dần.
 - Nếu bằng sao, sắp theo mã alphabet; không dùng tiêu chí ngầm để phá hoà.
 - Tooltip liệt kê đủ sáu tiêu chí bằng `★/☆`, giúp đối chiếu trực tiếp với chart.
