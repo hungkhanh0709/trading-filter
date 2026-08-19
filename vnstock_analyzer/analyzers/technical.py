@@ -65,65 +65,7 @@ class TechnicalAnalyzer:
         return result
 
     def get_analysis(self):
-        """
-        MA-focused analysis - Simple and powerful
-        
-        Returns:
-            dict: {
-                'status': str,
-                'signal': str,
-                'ma_analysis': dict (complete MA analysis),
-                'component_score': float
-            }
-        """
+        """Return the factual MA analysis consumed by the API."""
         if self.df is None or len(self.df) < 50:
-            return {
-                'status': 'NA',
-                'signal': 'HOLD',
-                'ma_analysis': {
-                    'status': 'NA',
-                    'score': 0,
-                    'reasons': ['Không đủ dữ liệu EMA50; cần tối thiểu 50 phiên'],
-                    'details': {},
-                    'forecast': {}
-                },
-                'component_score': 0
-            }
-        
-        # Get MA analysis
-        ma_result = self.ma_analyzer.analyze()
-        
-        # Simple status mapping from MA score
-        ma_score = ma_result.get('score', 0)
-        if ma_score >= 9:
-            overall_status = 'EXCELLENT'
-        elif ma_score >= 7:
-            overall_status = 'GOOD'
-        elif ma_score >= 4:
-            overall_status = 'ACCEPTABLE'
-        elif ma_score >= 2:
-            overall_status = 'WARNING'
-        else:
-            overall_status = 'POOR'
-        
-        # Determine signal from MA forecast
-        forecast_scenario = ma_result.get('forecast', {}).get('scenario', {}).get('scenario', 'SIDEWAY')
-        
-        if forecast_scenario in ['STRONG_UPTREND', 'BREAKOUT_SOON']:
-            signal = 'STRONG_BUY'
-        elif forecast_scenario == 'UPTREND_CONSOLIDATION':
-            signal = 'BUY'
-        elif forecast_scenario in ['DOWNTREND_WARNING', 'STRONG_DOWNTREND']:
-            signal = 'SELL'
-        else:
-            signal = 'HOLD'
-        
-        # Component score from MA (0-1)
-        component_score = ma_score / 10.0
-        
-        return {
-            'status': overall_status,
-            'signal': signal,
-            'ma_analysis': ma_result,
-            'component_score': component_score
-        }
+            return {'ma_analysis': {}}
+        return {'ma_analysis': self.ma_analyzer.analyze()}

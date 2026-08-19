@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stock Filter - VN30 Tracker (Matrix View)</title>
+    <title>Triple EMA Potential Monitor</title>
     <link href="https://cdn.jsdelivr.net/npm/vuetify@3.5.1/dist/vuetify.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" rel="stylesheet">
     <style>
@@ -40,44 +40,6 @@
             font-size: 1em;
         }
 
-        .matrix-cell {
-            text-align: center;
-            padding: 4px;
-        }
-
-        .status-new {
-            color: #4CAF50;
-            font-weight: bold;
-        }
-
-        .status-normal {
-            color: #2196F3;
-        }
-
-        .status-removed {
-            color: #9E9E9E;
-            text-decoration: line-through;
-        }
-
-        .status-absent {
-            color: #E0E0E0;
-        }
-
-        .date-header {
-            font-weight: 600;
-            font-size: 0.8em;
-            white-space: nowrap;
-            writing-mode: horizontal-tb;
-        }
-
-        .legend-item {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            margin-right: 16px;
-            font-size: 0.9em;
-        }
-
         .price-cell {
             font-family: 'Courier New', monospace;
             font-size: 0.95em;
@@ -99,24 +61,6 @@
             font-weight: 600;
         }
 
-        /* HIGH Warning Pulse Animation */
-        .pulse-animation {
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-
-        @keyframes pulse {
-
-            0%,
-            100% {
-                transform: scale(1);
-                opacity: 1;
-            }
-
-            50% {
-                transform: scale(1.15);
-                opacity: 0.85;
-            }
-        }
     </style>
 </head>
 
@@ -126,7 +70,7 @@
             <v-app-bar color="primary" density="compact">
                 <v-app-bar-title>
                     <v-icon icon="mdi-chart-line" class="mr-2"></v-icon>
-                    Stock Filter - Matrix View
+                    Triple EMA Potential Monitor
                 </v-app-bar-title>
                 <v-spacer></v-spacer>
                 <!-- Analysis Progress -->
@@ -163,28 +107,18 @@
                                 <v-alert v-if="selectedExchange === 'POTENTIAL'" type="info" variant="tonal"
                                     class="mx-4 mb-4" density="compact">
                                     <div style="font-weight: 600;">
-                                        {{ potentialStats.ready }} READY · {{ potentialStats.watch }} WATCH /
-                                        {{ potentialStats.analyzed }} mã đã phân tích ·
-                                        {{ potentialStats.confirmed }} mã được breadth xác nhận
+                                        {{ potentialStats.analyzed }}/{{ potentialStats.total }} mã đã phân tích ·
+                                        không filter, chỉ xếp hạng theo số sao
                                     </div>
-                                    <div v-if="potentialBreadth.analyzed" style="font-size: 0.85em; margin-top: 4px;">
-                                        Market breadth: {{ potentialBreadth.aboveMA50Percent }}% trên MA50 ·
-                                        {{ potentialBreadth.bullishPercent }}% momentum bullish ·
+                                    <div style="font-size: 0.85em; margin-top: 4px;">
+                                        ★ Perfect Order · ★ Golden Cross MA20/50 mới · ★ cụm MA ≤ 1% ·
+                                        pullback MA10/20/50 cộng dồn tối đa ★★★ ·
                                         Dữ liệu đến phiên {{ potentialAsOf || '-' }}
                                     </div>
-                                    <div v-if="potentialTransitions.entered.length || potentialTransitions.exited.length"
-                                        style="font-size: 0.85em; margin-top: 6px;">
-                                        <span v-if="potentialTransitions.entered.length">
-                                            Mới vào: {{ potentialTransitions.entered.join(', ') }}.
-                                        </span>
-                                        <span v-if="potentialTransitions.exited.length">
-                                            Rời Potential: {{ potentialTransitions.exited.join(', ') }}.
-                                        </span>
-                                    </div>
-                                    <div v-if="potentialStageSummary.length" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
-                                        <v-chip v-for="stage in potentialStageSummary" :key="stage.key" size="small"
-                                            :color="stage.color" variant="flat">
-                                            {{ stage.label }}: {{ stage.count }}
+                                    <div v-if="potentialStarSummary.length" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
+                                        <v-chip v-for="group in potentialStarSummary" :key="group.stars" size="small"
+                                            color="amber-darken-2" variant="tonal">
+                                            {{ group.stars }}★: {{ group.count }} mã
                                         </v-chip>
                                     </div>
                                 </v-alert>
@@ -234,10 +168,6 @@
                                     </template>
                                     <div v-html="item.potentialSignal.tooltip"></div>
                                 </v-tooltip>
-                                <v-chip v-if="item.potentialTransition && item.potentialTransition.type !== 'STABLE'"
-                                    :color="item.potentialTransition.color" size="x-small" variant="tonal">
-                                    {{ item.potentialTransition.label }}
-                                </v-chip>
                                 </div>
                                 <span v-else style="color: #999;">-</span>
                             </template>
@@ -325,7 +255,7 @@
                                             <v-icon v-bind="props"
                                                 :icon="item.analysis.golden_cross?.icon || 'mdi-star-circle'"
                                                 :color="item.analysis.golden_cross?.color || 'grey'" size="small"
-                                                :style="{opacity: item.analysis.golden_cross?.has_cross ? 1 : 0.3}">
+                                                :style="{opacity: item.analysis.golden_cross?.has_recent_cross || item.analysis.golden_cross?.has_cross ? 1 : 0.3}">
                                             </v-icon>
                                         </template>
                                         <div v-html="item.analysis.golden_cross?.tooltip || 'No Golden Cross'"></div>
@@ -395,7 +325,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.15/dist/vue.global.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/vuetify@3.5.1/dist/vuetify.min.js"></script>
-    <script src="/potential-filter.js"></script>
+    <script src="/potential-ranker.js"></script>
     <script>
         const { createApp } = Vue;
         const { createVuetify } = Vuetify;
@@ -425,46 +355,37 @@
                     loading: false,
                     selectedExchange: 'POTENTIAL',
                     matrixData: {
-                        dates: [],
-                        symbols: [],
-                        stats: {}
+                        symbols: []
                     },
                     search: '',
                     errorSnackbar: false,
                     errorMessage: '',
-                    // Auto-analysis queue
-                    analyzingQueue: [],
                     analyzingProgress: { completed: 0, total: 0 },
-                    maxConcurrent: 5,
                     autoAnalyzing: false,
                     analysisRunId: 0,
-                    potentialHistory: { latest: null, previous: null },
                     // Table sorting state
                     sortBy: [] // Vuetify v-model:sort-by binding
                 };
             },
             computed: {
                 displayedSymbols() {
-                    const symbols = this.matrixData?.symbols || [];
-                    if (this.selectedExchange !== 'POTENTIAL') {
-                        return symbols;
-                    }
-
-                    return symbols.filter(symbol => symbol.potentialSignal?.isPotential);
+                    // Potential is an observation table, not a filter. Every
+                    // symbol stays visible, including zero-star rows.
+                    return this.matrixData?.symbols || [];
                 },
                 tableNoDataText() {
                     if (this.selectedExchange !== 'POTENTIAL') {
                         return 'No data available';
                     }
                     if (this.autoAnalyzing) {
-                        return `Đang phân tích ${this.analyzingProgress.completed}/${this.analyzingProgress.total} mã; chưa có mã đạt setup trong phần đã xử lý.`;
+                        return `Đang phân tích ${this.analyzingProgress.completed}/${this.analyzingProgress.total} mã.`;
                     }
                     const total = this.matrixData?.symbols?.length || 0;
                     const analyzed = (this.matrixData?.symbols || []).filter(symbol => !!symbol.analysis).length;
                     if (analyzed < total) {
                         return `Mới phân tích ${analyzed}/${total} mã. Hãy bấm nút Phân tích tất cả để tiếp tục.`;
                     }
-                    return 'Đã phân tích toàn bộ nhưng hiện không có mã đạt setup POTENTIAL.';
+                    return 'Không có mã trong danh sách theo dõi.';
                 },
                 // Sorted symbols
                 sortedSymbols() {
@@ -518,57 +439,16 @@
                 potentialStats() {
                     const symbols = this.matrixData?.symbols || [];
                     const analyzed = symbols.filter(symbol => !!symbol.analysis).length;
-                    const qualified = symbols.filter(symbol => symbol.potentialSignal?.isPotential).length;
-                    const ready = symbols.filter(symbol => symbol.potentialSignal?.isReady).length;
-                    const watch = symbols.filter(symbol => symbol.potentialSignal?.isWatchCandidate).length;
-                    const confirmed = symbols.filter(symbol => symbol.potentialSignal?.marketConfirmed).length;
-
-                    return {
-                        analyzed,
-                        qualified,
-                        ready,
-                        watch,
-                        confirmed
-                    };
+                    return { analyzed, total: symbols.length };
                 },
-                potentialBreadth() {
-                    const analyzed = (this.matrixData?.symbols || []).filter(symbol => !!symbol.analysis);
-                    if (!analyzed.length) {
-                        return { analyzed: 0, aboveMA50Ratio: 0, bullishRatio: 0, aboveMA50Percent: 0, bullishPercent: 0 };
-                    }
-                    const aboveMA50Ratio = analyzed.filter(symbol =>
-                        (symbol.analysis?.price_position?.vs_ma50 ?? -Infinity) >= 0
-                    ).length / analyzed.length;
-                    const bullishRatio = analyzed.filter(symbol =>
-                        ['BULLISH_ALIGNED', 'MOSTLY_BULLISH'].includes(symbol.analysis?.momentum?.alignment)
-                    ).length / analyzed.length;
-                    return {
-                        analyzed: analyzed.length,
-                        aboveMA50Ratio,
-                        bullishRatio,
-                        aboveMA50Percent: Math.round(aboveMA50Ratio * 100),
-                        bullishPercent: Math.round(bullishRatio * 100)
-                    };
-                },
-                potentialStageSummary() {
-                    const stageMeta = [
-                        { key: 'BREAKOUT EARLY', label: 'BREAKOUT EARLY', color: 'deep-purple' },
-                        { key: 'PULLBACK MA20', label: 'PULLBACK MA20', color: 'teal' },
-                        { key: 'PULLBACK MA50', label: 'PULLBACK MA50', color: 'green' }
-                    ];
-
-                    const counts = new Map(stageMeta.map(stage => [stage.key, 0]));
-
+                potentialStarSummary() {
+                    const counts = new Map();
                     (this.matrixData?.symbols || []).forEach(symbol => {
-                        const stage = symbol.potentialSignal?.stage;
-                        if (symbol.potentialSignal?.isPotential && counts.has(stage)) {
-                            counts.set(stage, counts.get(stage) + 1);
-                        }
+                        const stars = symbol.potentialSignal?.stars;
+                        if (Number.isFinite(stars)) counts.set(stars, (counts.get(stars) || 0) + 1);
                     });
-
-                    return stageMeta
-                        .map(stage => ({ ...stage, count: counts.get(stage.key) || 0 }))
-                        .filter(stage => stage.count > 0);
+                    return Array.from(counts, ([stars, count]) => ({ stars, count }))
+                        .sort((a, b) => b.stars - a.stars);
                 },
                 potentialAsOf() {
                     const dates = (this.matrixData?.symbols || [])
@@ -576,18 +456,6 @@
                         .filter(Boolean)
                         .sort();
                     return dates.length ? dates[dates.length - 1] : null;
-                },
-                potentialTransitions() {
-                    const entered = [];
-                    const exited = [];
-                    (this.matrixData?.symbols || []).forEach(symbol => {
-                        if (symbol.potentialTransition?.type === 'ENTERED') entered.push(symbol.symbol);
-                        if (symbol.potentialTransition?.type === 'EXITED') {
-                            const reason = symbol.potentialTransition.reason;
-                            exited.push(reason ? `${symbol.symbol} (${reason})` : symbol.symbol);
-                        }
-                    });
-                    return { entered, exited };
                 },
                 matrixHeaders() {
                     const headers = [
@@ -662,7 +530,6 @@
                 }
             },
             mounted() {
-                this.loadPotentialHistory();
                 this.loadData().then(loaded => {
                     if (loaded) this.autoAnalyzeAll();
                 });
@@ -692,23 +559,7 @@
                 },
 
                 applySortByPotential(symbols) {
-                    return symbols.sort((a, b) => {
-                        const statusDiff = (b.potentialSignal?.statusPriority ?? -Infinity) - (a.potentialSignal?.statusPriority ?? -Infinity);
-                        if (statusDiff !== 0) return statusDiff;
-
-                        const stageDiff = (b.potentialSignal?.stagePriority ?? -Infinity) - (a.potentialSignal?.stagePriority ?? -Infinity);
-                        if (stageDiff !== 0) return stageDiff;
-
-                        const scoreDiff = (b.potentialSignal?.score ?? -Infinity) - (a.potentialSignal?.score ?? -Infinity);
-                        if (scoreDiff !== 0) return scoreDiff;
-
-                        const entryDiff = (b.potentialSignal?.entryScore ?? -Infinity) - (a.potentialSignal?.entryScore ?? -Infinity);
-                        if (entryDiff !== 0) return entryDiff;
-
-                        const aPriceVsMA50 = Math.abs(a.analysis?.price_position?.vs_ma50 ?? Infinity);
-                        const bPriceVsMA50 = Math.abs(b.analysis?.price_position?.vs_ma50 ?? Infinity);
-                        return aPriceVsMA50 - bPriceVsMA50;
-                    });
+                    return symbols.sort(PotentialRanker.comparePotentialRows);
                 },
 
                 /**
@@ -743,21 +594,7 @@
                         },
 
                         potential: (a, b) => {
-                            const aStatus = a.potentialSignal?.statusPriority ?? -Infinity;
-                            const bStatus = b.potentialSignal?.statusPriority ?? -Infinity;
-                            if (aStatus !== bStatus) return aStatus - bStatus;
-
-                            const aStage = a.potentialSignal?.stagePriority ?? -Infinity;
-                            const bStage = b.potentialSignal?.stagePriority ?? -Infinity;
-                            if (aStage !== bStage) return aStage - bStage;
-
-                            const aScore = a.potentialSignal?.score ?? -Infinity;
-                            const bScore = b.potentialSignal?.score ?? -Infinity;
-                            if (aScore !== bScore) return aScore - bScore;
-
-                            const aEntry = a.potentialSignal?.entryScore ?? -Infinity;
-                            const bEntry = b.potentialSignal?.entryScore ?? -Infinity;
-                            return aEntry - bEntry;
+                            return (a.potentialSignal?.stars ?? -1) - (b.potentialSignal?.stars ?? -1);
                         },
 
                         // Price vs MA: by distance to MA50
@@ -774,15 +611,18 @@
                             return aConv - bConv;
                         },
 
-                        // Order & Crosses: composite score
+                        // Order & Crosses: explicit factual ordering, no score.
                         order_crosses: (a, b) => {
-                            const aScore = (a.analysis?.perfect_order ? 100 : 0) +
-                                (a.analysis?.golden_cross?.has_cross ? 50 : 0) -
-                                (a.analysis?.death_cross?.has_cross ? 100 : 0);
-                            const bScore = (b.analysis?.perfect_order ? 100 : 0) +
-                                (b.analysis?.golden_cross?.has_cross ? 50 : 0) -
-                                (b.analysis?.death_cross?.has_cross ? 100 : 0);
-                            return aScore - bScore;
+                            const fields = [
+                                item => !item.analysis?.death_cross?.has_cross,
+                                item => !!item.analysis?.perfect_order,
+                                item => !!(item.analysis?.golden_cross?.has_recent_cross || item.analysis?.golden_cross?.has_cross)
+                            ];
+                            for (const field of fields) {
+                                const difference = Number(field(a)) - Number(field(b));
+                                if (difference !== 0) return difference;
+                            }
+                            return 0;
                         },
 
                         // Expansion: by quality (STRONG > MODERATE > WEAK > CONTRACTING)
@@ -832,68 +672,6 @@
                     if (change < 0) return 'change-negative';
                     return 'change-neutral';
                 },
-                evaluatePotentialSignal(analysis) {
-                    return PotentialFilter.evaluatePotentialSignal(analysis);
-                },
-                refreshPotentialSignals() {
-                    const marketContext = this.potentialBreadth;
-                    (this.matrixData?.symbols || []).forEach(symbol => {
-                        if (symbol.analysis) {
-                            symbol.potentialSignal = PotentialFilter.evaluatePotentialSignal(
-                                symbol.analysis,
-                                marketContext
-                            );
-                        }
-                    });
-                },
-                loadPotentialHistory() {
-                    try {
-                        const stored = JSON.parse(localStorage.getItem('potential-history-v3-unadjusted-ema') || '{}');
-                        this.potentialHistory = {
-                            latest: stored.latest || null,
-                            previous: stored.previous || null
-                        };
-                    } catch (error) {
-                        console.warn('Không thể đọc lịch sử Potential:', error);
-                        this.potentialHistory = { latest: null, previous: null };
-                    }
-                },
-                updatePotentialHistory() {
-                    if (this.selectedExchange !== 'POTENTIAL') return;
-                    const analyzed = (this.matrixData?.symbols || []).filter(
-                        symbol => symbol.potentialSignal && symbol.analysis?.data_as_of
-                    );
-                    if (!analyzed.length) return;
-
-                    const currentDate = analyzed
-                        .map(symbol => symbol.analysis.data_as_of)
-                        .sort()
-                        .at(-1);
-                    let history = this.potentialHistory || { latest: null, previous: null };
-                    if (!history.latest || history.latest.date !== currentDate) {
-                        history = {
-                            previous: history.latest,
-                            latest: { date: currentDate, signals: {} }
-                        };
-                    }
-
-                    const previousSignals = history.previous?.signals || {};
-                    analyzed.forEach(symbol => {
-                        const previous = previousSignals[symbol.symbol] || null;
-                        symbol.potentialTransition = PotentialFilter.comparePotentialSignals(
-                            previous,
-                            symbol.potentialSignal
-                        );
-                        history.latest.signals[symbol.symbol] =
-                            PotentialFilter.summarizePotentialSignal(symbol.potentialSignal);
-                    });
-                    this.potentialHistory = history;
-                    try {
-                        localStorage.setItem('potential-history-v3-unadjusted-ema', JSON.stringify(history));
-                    } catch (error) {
-                        console.warn('Không thể lưu lịch sử Potential:', error);
-                    }
-                },
                 async loadData() {
                     this.loading = true;
                     this.errorSnackbar = false;
@@ -911,10 +689,7 @@
                                 ...symbol,
                                 analyzing: false,
                                 analysis: null,
-                                analysisError: null,
-                                fetchingPrice: false,
-                                potentialSignal: null,
-                                potentialTransition: null
+                                potentialSignal: null
                             }));
 
                             this.matrixData = result.data;
@@ -963,11 +738,6 @@
                     // A tab switch or newer manual run owns the UI now.
                     if (runId !== this.analysisRunId) return;
 
-                    // Re-evaluate once the full breadth is known. Breadth only
-                    // annotates READY candidates; it never hides READY/WATCH.
-                    this.refreshPotentialSignals();
-                    this.updatePotentialHistory();
-
                     this.autoAnalyzing = false;
                     console.log(`✅ Completed auto-analysis: ${this.analyzingProgress.completed}/${this.analyzingProgress.total}`);
                 },
@@ -1000,28 +770,25 @@
                     if (item.analyzing || item.analysis) return; // Skip if already analyzing or analyzed
 
                     item.analyzing = true;
-                    item.analysisError = null;
 
                     try {
                         const response = await fetch(`/api/analyze/${item.symbol}`);
                         const result = await response.json();
 
                         if (result.success) {
-                            const potentialSignal = this.evaluatePotentialSignal(result.data);
+                            const potentialSignal = PotentialRanker.evaluatePotentialSignal(result.data);
                             Object.assign(item, {
                                 ...item,
                                 analysis: result.data,
                                 potentialSignal,
-                                analyzing: false,
-                                analysisError: null
+                                analyzing: false
                             });
                             console.log(`✅ [${this.analyzingProgress.completed + 1}/${this.analyzingProgress.total}] ${item.symbol}: ${potentialSignal?.label || 'Đã phân tích'}`);
                         } else {
-                            item.analysisError = result.error || 'Analysis failed';
                             item.analyzing = false;
+                            console.error(`❌ ${item.symbol}: ${result.error || 'Analysis failed'}`);
                         }
                     } catch (error) {
-                        item.analysisError = error.message;
                         item.analyzing = false;
                     }
                 }

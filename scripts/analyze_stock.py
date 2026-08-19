@@ -20,8 +20,8 @@ import os
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vnstock_analyzer import StockScorer, export_json
-from vnstock_analyzer.utils import get_logger, LogLevel
+from vnstock_analyzer import StockAnalyzer, export_json
+from vnstock_analyzer.utils import get_logger
 
 
 def main():
@@ -31,14 +31,15 @@ def main():
         sys.exit(1)
     
     symbol = sys.argv[1].upper()
-    logger = get_logger('CLI', LogLevel.INFO)
+    exchange = sys.argv[2].upper() if len(sys.argv) > 2 else 'HOSE'
+    logger = get_logger('CLI')
     
     logger.info(f"Starting analysis for {symbol}")
     
     try:
         # Analyze stock với error handling
-        scorer = StockScorer(symbol)
-        result = scorer.analyze()
+        analyzer = StockAnalyzer(symbol, exchange=exchange)
+        result = analyzer.analyze()
         
         # Check if result contains error
         if result and 'error' not in result:

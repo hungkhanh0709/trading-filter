@@ -9,18 +9,18 @@ import logging
 import pandas as pd
 
 from .vnstock_client import Quote, Reference
+from .price_normalizer import normalize_exchange, normalize_price_history
 
 
-# TEMA50 first becomes valid after 148 bars. Fetching 500 leaves more than 350
-# additional updates for all three EMA legs to converge toward a long-history
-# chart while keeping each screening request reasonably small.
+# EMA50 is seeded after 50 bars. Fetching 500 provides a long convergence
+# runway while keeping each analysis request reasonably small.
 HISTORY_COUNT_BACK = 500
 
 
 class DataFetcher:
     """Fetch và cache data với retry logic và graceful degradation"""
     
-    def __init__(self, symbol, source='VCI'):
+    def __init__(self, symbol, source='VCI', exchange='HOSE'):
         """
         Initialize data fetcher
         
@@ -33,6 +33,7 @@ class DataFetcher:
         self.symbol = symbol
         self.source = source
         self.active_source = source
+        self.exchange = normalize_exchange(exchange)
         self.fallback_source = 'KBS' if source.upper() == 'VCI' else None
         
         try:
@@ -45,7 +46,6 @@ class DataFetcher:
         # Retry configuration
         self.max_retries = 3
         self.retry_delay = 2  # seconds
-        self.timeout = 30  # seconds per request
         
     def _retry_with_backoff(
         self,
@@ -173,6 +173,7 @@ class DataFetcher:
                     history,
                     dividend_events,
                 )
+                history = normalize_price_history(history, self.exchange)
                 self.data_cache['history'] = history
                 self.data_cache['price_adjustments'] = adjustments
                 self.data_cache['price_adjustment_status'] = (
@@ -180,17 +181,16 @@ class DataFetcher:
                     if isinstance(dividend_events, pd.DataFrame)
                     else 'SOURCE_ADJUSTMENT_UNKNOWN'
                 )
+                self.data_cache['price_normalization'] = 'EXCHANGE_TICK_HALF_UP'
+                self.data_cache['exchange'] = self.exchange
                 print(f"  ✅ Lấy được {len(history)} ngày giao dịch", file=sys.stderr)
                 has_critical_data = True
             else:
                 print(f"  ❌ CRITICAL: Không lấy được lịch sử giá", file=sys.stderr)
                 return False  # Cannot proceed without price history
             
-            # 2-5: Non-critical data - fail silently
-            # self._fetch_optional_data()
-            
             if has_critical_data:
-                print(f"✅ Fetch data thành công (có thể thiếu một số data phụ)\n", file=sys.stderr)
+                print("✅ Fetch dữ liệu giá thành công\n", file=sys.stderr)
             
             return has_critical_data
             
@@ -280,79 +280,12 @@ class DataFetcher:
 
         return result, adjustments
     
-    def _fetch_optional_data(self):
-        """Fetch optional data - không ảnh hưởng nếu fail"""
-        
-        # 2. Financial ratios (OPTIONAL)
-        print(f"  ⏳ Lấy chỉ số tài chính...", file=sys.stderr)
-        ratio = self._retry_with_backoff(
-            self.stock.finance.ratio,
-            "Chỉ số tài chính",
-            period='quarter'
-        )
-        
-        if ratio is not None:
-            self.data_cache['ratio'] = ratio
-            print(f"  ✅ Lấy được {len(ratio)} quý dữ liệu tài chính", file=sys.stderr)
-        else:
-            self.data_cache['ratio'] = None
-            print(f"  ⚠️  Bỏ qua ratio (không bắt buộc)", file=sys.stderr)
-        
-        # 3. Company overview (OPTIONAL)
-        print(f"  ⏳ Lấy thông tin công ty...", file=sys.stderr)
-        overview = self._retry_with_backoff(
-            self.stock.company.overview,
-            "Thông tin công ty"
-        )
-        
-        if overview is not None:
-            self.data_cache['overview'] = overview
-            print(f"  ✅ Lấy được thông tin công ty", file=sys.stderr)
-        else:
-            self.data_cache['overview'] = None
-            print(f"  ⚠️  Bỏ qua overview (không bắt buộc)", file=sys.stderr)
-        
-        # 4. Shareholders (OPTIONAL)
-        print(f"  ⏳ Lấy danh sách cổ đông...", file=sys.stderr)
-        shareholders = self._retry_with_backoff(
-            self.stock.company.shareholders,
-            "Danh sách cổ đông"
-        )
-        
-        if shareholders is not None:
-            self.data_cache['shareholders'] = shareholders
-            print(f"  ✅ Lấy được danh sách cổ đông", file=sys.stderr)
-        else:
-            self.data_cache['shareholders'] = None
-            print(f"  ⚠️  Bỏ qua shareholders (không bắt buộc)", file=sys.stderr)
-        
-        # 5. Insider deals (OPTIONAL - often not available)
-        print(f"  ⏳ Lấy giao dịch nội bộ...", file=sys.stderr)
-        try:
-            if hasattr(self.stock.company, 'insider_deals'):
-                insider = self._retry_with_backoff(
-                    self.stock.company.insider_deals,
-                    "Giao dịch nội bộ"
-                )
-                if insider is not None:
-                    self.data_cache['insider'] = insider
-                    print(f"  ✅ Lấy được giao dịch nội bộ", file=sys.stderr)
-                else:
-                    self.data_cache['insider'] = None
-                    print(f"  ⚠️  Bỏ qua insider deals (không bắt buộc)", file=sys.stderr)
-            else:
-                self.data_cache['insider'] = None
-                print(f"  ⚠️  API không hỗ trợ insider deals", file=sys.stderr)
-        except Exception:
-            self.data_cache['insider'] = None
-            print(f"  ⚠️  Bỏ qua insider deals (không khả dụng)", file=sys.stderr)
-    
     def get_data(self, data_type):
         """
         Lấy data từ cache
         
         Args:
-            data_type: Type of data ('history', 'ratio', 'overview', 'shareholders', 'insider')
+            data_type: Cache key such as ``history`` or price metadata.
             
         Returns:
             Cached dataframe or None

@@ -146,7 +146,6 @@ def _interpret_slope(slope):
     Returns:
         dict: {
             'slope': float,
-            'slope_pct_per_day': float,
             'trend': str,
             'strength': str
         }
@@ -176,7 +175,6 @@ def _interpret_slope(slope):
     
     return {
         'slope': slope,
-        'slope_pct_per_day': slope,
         'trend': trend,
         'strength': strength
     }

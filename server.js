@@ -21,11 +21,10 @@ const VN30_FILE = path.join(__dirname, 'data', 'vn30.json');
 const VN100_FILE = path.join(__dirname, 'data', 'vn100.json');
 const HNX30_FILE = path.join(__dirname, 'data', 'hnx30.json');
 const PYTHON_VENV = path.join(__dirname, '.venv', 'bin', 'python');
-const FETCH_PRICES_SCRIPT = path.join(__dirname, 'scripts', 'fetch_prices.py');
 const ANALYZE_STOCK_SCRIPT = path.join(__dirname, 'scripts', 'analyze_stock.py');
 
 // Analysis cache - 180 minutes TTL
-let analysisCache = {
+const analysisCache = {
     data: {},
     ttl: 180 * 60 * 1000
 };
@@ -81,20 +80,10 @@ app.get('/api/symbols', async (req, res) => {
         // Get symbols
         const symbols = getSymbols(exchange);
 
-        // Calculate stats
-        const stats = {
-            total: symbols.length,
-            vn30: symbols.filter(s => s.isVN30).length,
-            vn100: symbols.filter(s => s.isVN100).length,
-            hnx30: symbols.filter(s => s.isHNX30).length,
-            inWatchlist: symbols.filter(s => s.inWatchlist).length
-        };
-
         res.json({
             success: true,
             data: {
-                symbols,
-                stats
+                symbols
             }
         });
     } catch (error) {
@@ -108,7 +97,7 @@ app.get('/api/symbols', async (req, res) => {
 
 /**
  * GET /api/analyze/:symbol
- * Analyze a single stock with caching (60min TTL)
+ * Analyze a single stock with caching (180-minute TTL)
  * 
  * Query params:
  *   - force: "1" to force refresh analysis
@@ -134,7 +123,8 @@ app.get('/api/analyze/:symbol', async (req, res) => {
 
         // Analyze
         console.log(`📊 Analyzing ${symbol}...`);
-        const result = await analyzeStock(symbol);
+        const symbolMeta = getSymbols('ALL').find(item => item.symbol === symbol);
+        const result = await analyzeStock(symbol, symbolMeta?.exchange || 'HOSE');
 
         if (result.error) {
             return res.json({
@@ -259,9 +249,9 @@ function getSymbols(exchange) {
  * @param {string} symbol - Stock symbol
  * @returns {Promise<Object>} Analysis result or error object
  */
-async function analyzeStock(symbol) {
+async function analyzeStock(symbol, exchange = 'HOSE') {
     return new Promise((resolve, reject) => {
-        const args = [ANALYZE_STOCK_SCRIPT, symbol];
+        const args = [ANALYZE_STOCK_SCRIPT, symbol, exchange];
         const pythonProcess = spawn(PYTHON_VENV, args);
 
         let stdout = '';
