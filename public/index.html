@@ -344,6 +344,8 @@
                     analyzingProgress: { completed: 0, total: 0 },
                     autoAnalyzing: false,
                     analysisRunId: 0,
+                    currentAnalysisJobId: null,
+                    analysisPollInFlight: false,
                     // Table sorting state
                     sortBy: [] // Vuetify v-model:sort-by binding
                 };
@@ -485,16 +487,21 @@
                 }
             },
             mounted() {
+                document.addEventListener('visibilitychange', this.handleVisibilityChange);
                 this.loadData().then(loaded => {
                     if (loaded) this.autoAnalyzeAll();
                 });
             },
+            beforeUnmount() {
+                document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+            },
             watch: {
                 selectedExchange() {
-                    // Cancel the previous tab's detached batch immediately. A
-                    // fresh run starts after the new symbol list is loaded.
+                    // Cancel the previous app tab's server job. Moving this
+                    // browser tab to the background does not cancel anything.
                     this.analysisRunId += 1;
                     this.autoAnalyzing = false;
+                    this.cancelCurrentAnalysisJob();
                     this.loadData().then(loaded => {
                         if (loaded) this.autoAnalyzeAll();
                     });
@@ -657,15 +664,18 @@
                         return;
                     }
 
-                    // Every invocation supersedes an older batch. Already
-                    // analyzed objects are skipped, so a manual retry is cheap.
+                    this.cancelCurrentAnalysisJob();
+
+                    // Every invocation supersedes an older UI run. Only rows
+                    // without a successful analysis are submitted again.
                     const runId = ++this.analysisRunId;
                     this.autoAnalyzing = true;
 
                     // Priority: VN30 first, then others
                     const vn30Symbols = this.matrixData.symbols.filter(s => s.isVN30);
                     const otherSymbols = this.matrixData.symbols.filter(s => !s.isVN30);
-                    const sortedSymbols = [...vn30Symbols, ...otherSymbols];
+                    const sortedSymbols = [...vn30Symbols, ...otherSymbols]
+                        .filter(item => !item.analysis);
 
                     this.analyzingProgress = {
                         completed: 0,
@@ -673,66 +683,133 @@
                     };
 
                     console.log(`🚀 Auto-analyzing ${sortedSymbols.length} symbols (${vn30Symbols.length} VN30 priority)...`);
-                    console.log(`⏱️ Sequential mode: 2s delay between requests (~${Math.ceil(sortedSymbols.length * 2 / 60)} minutes total)`);
 
-                    // Process sequentially with delay
-                    await this.analyzeBatch(sortedSymbols, runId);
+                    if (sortedSymbols.length === 0) {
+                        this.autoAnalyzing = false;
+                        return;
+                    }
 
-                    // A tab switch or newer manual run owns the UI now.
-                    if (runId !== this.analysisRunId) return;
+                    try {
+                        sortedSymbols.forEach(item => { item.analyzing = true; });
 
-                    this.autoAnalyzing = false;
-                    console.log(`✅ Completed auto-analysis: ${this.analyzingProgress.completed}/${this.analyzingProgress.total}`);
-                },
+                        const response = await fetch('/api/analysis-jobs', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ symbols: sortedSymbols.map(item => item.symbol) })
+                        });
+                        const result = await response.json();
 
-                async analyzeBatch(symbols, runId) {
-                    // Sequential processing with 1s delay to avoid rate limiting
-                    for (let i = 0; i < symbols.length; i++) {
+                        if (!response.ok || !result.success) {
+                            throw new Error(result.error || 'Không thể khởi tạo hàng đợi phân tích');
+                        }
+
                         if (runId !== this.analysisRunId) {
-                            console.log('ℹ️ Analysis batch superseded by a newer tab/run.');
+                            await this.cancelAnalysisJob(result.data.id);
                             return;
                         }
-                        const item = symbols[i];
 
-                        try {
-                            await this.analyzeSymbolSilent(item);
-                            this.analyzingProgress.completed++;
-                        } catch (err) {
-                            console.error(`❌ Error analyzing ${item.symbol}:`, err);
-                            this.analyzingProgress.completed++;
+                        this.currentAnalysisJobId = result.data.id;
+                        await this.monitorAnalysisJob(result.data.id, runId);
+                    } catch (error) {
+                        if (runId === this.analysisRunId) {
+                            console.error('❌ Auto-analysis failed:', error);
+                            this.errorMessage = 'Không thể phân tích dữ liệu: ' + error.message;
+                            this.errorSnackbar = true;
                         }
-
-                        // Add 1s delay between requests (except for the last one)
-                        if (i < symbols.length - 1) {
-                            await new Promise(resolve => setTimeout(resolve, 1000));
+                    } finally {
+                        if (runId === this.analysisRunId) {
+                            sortedSymbols.forEach(item => { item.analyzing = false; });
+                            this.autoAnalyzing = false;
+                            this.currentAnalysisJobId = null;
+                            console.log(`✅ Analysis queue stopped: ${this.analyzingProgress.completed}/${this.analyzingProgress.total}`);
                         }
                     }
                 },
 
-                async analyzeSymbolSilent(item) {
-                    if (item.analyzing || item.analysis) return; // Skip if already analyzing or analyzed
+                async monitorAnalysisJob(jobId, runId) {
+                    let consecutiveErrors = 0;
 
-                    item.analyzing = true;
-
-                    try {
-                        const response = await fetch(`/api/analyze/${item.symbol}`);
-                        const result = await response.json();
-
-                        if (result.success) {
-                            const potentialSignal = PotentialRanker.evaluatePotentialSignal(result.data);
-                            Object.assign(item, {
-                                ...item,
-                                analysis: result.data,
-                                potentialSignal,
-                                analyzing: false
-                            });
-                            console.log(`✅ [${this.analyzingProgress.completed + 1}/${this.analyzingProgress.total}] ${item.symbol}: ${potentialSignal?.label || 'Đã phân tích'}`);
-                        } else {
-                            item.analyzing = false;
-                            console.error(`❌ ${item.symbol}: ${result.error || 'Analysis failed'}`);
+                    while (runId === this.analysisRunId && this.currentAnalysisJobId === jobId) {
+                        let job;
+                        try {
+                            job = await this.syncAnalysisJob(jobId, runId);
+                            if (job) consecutiveErrors = 0;
+                        } catch (error) {
+                            consecutiveErrors++;
+                            console.warn(`⚠️ Failed to poll analysis job (${consecutiveErrors}/5):`, error);
+                            if (consecutiveErrors >= 5) throw error;
                         }
-                    } catch (error) {
+
+                        if (!job) {
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            continue;
+                        }
+                        if (['completed', 'cancelled', 'failed'].includes(job.status)) return;
+
+                        // Browser timers may pause here in a background tab;
+                        // the server-owned analysis job continues regardless.
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                },
+
+                async syncAnalysisJob(jobId = this.currentAnalysisJobId, runId = this.analysisRunId) {
+                    if (!jobId || this.analysisPollInFlight) return null;
+
+                    this.analysisPollInFlight = true;
+                    try {
+                        const response = await fetch(`/api/analysis-jobs/${jobId}`, { cache: 'no-store' });
+                        const result = await response.json();
+                        if (!response.ok || !result.success) {
+                            throw new Error(result.error || 'Không thể đọc tiến độ phân tích');
+                        }
+
+                        if (runId !== this.analysisRunId || jobId !== this.currentAnalysisJobId) return null;
+                        this.applyAnalysisJob(result.data);
+                        return result.data;
+                    } finally {
+                        this.analysisPollInFlight = false;
+                    }
+                },
+
+                applyAnalysisJob(job) {
+                    this.analyzingProgress = { completed: job.completed, total: job.total };
+                    const itemsBySymbol = new Map(
+                        (this.matrixData?.symbols || []).map(item => [item.symbol, item])
+                    );
+
+                    Object.entries(job.results || {}).forEach(([symbol, result]) => {
+                        const item = itemsBySymbol.get(symbol);
+                        if (!item) return;
+
                         item.analyzing = false;
+                        if (result.success) {
+                            item.analysis = result.data;
+                            item.potentialSignal = PotentialRanker.evaluatePotentialSignal(result.data);
+                        } else {
+                            console.error(`❌ ${symbol}: ${result.error || 'Analysis failed'}`);
+                        }
+                    });
+                },
+
+                cancelCurrentAnalysisJob() {
+                    const jobId = this.currentAnalysisJobId;
+                    this.currentAnalysisJobId = null;
+                    if (jobId) {
+                        this.cancelAnalysisJob(jobId).catch(error => {
+                            console.warn('⚠️ Failed to cancel superseded analysis job:', error);
+                        });
+                    }
+                },
+
+                async cancelAnalysisJob(jobId) {
+                    await fetch(`/api/analysis-jobs/${jobId}`, { method: 'DELETE' });
+                },
+
+                handleVisibilityChange() {
+                    if (!document.hidden && this.currentAnalysisJobId) {
+                        this.syncAnalysisJob().catch(error => {
+                            console.error('❌ Failed to refresh analysis progress:', error);
+                        });
                     }
                 }
             },

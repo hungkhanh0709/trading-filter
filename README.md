@@ -33,6 +33,17 @@ Ba tầng pullback chỉ cộng sao khi đã có Perfect Order. Hệ thống ch�
 - `GET /api/symbols?exchange=WATCHLIST|VN30|VN100|HNX30`: universe tương ứng.
 - `GET /api/analyze/:symbol`: giá đã chuẩn hoá bước giá và phân tích EMA.
 - `GET /api/analyze/:symbol?force=1`: bỏ qua cache phân tích trong bộ nhớ.
+- `POST /api/analysis-jobs`: khởi tạo hàng đợi phân tích chạy phía server, không bị dừng khi tab trình duyệt xuống nền.
+
+Mỗi mã có hard timeout mặc định 120 giây để một request bị treo không chặn toàn bộ hàng đợi. Có thể thay đổi bằng biến môi trường `ANALYSIS_TIMEOUT_MS`.
+
+Server dùng một Python worker lâu dài thay vì khởi động lại Python cho từng mã. Chi phí import pandas, khởi tạo `vnstock/vnai` và cache Matplotlib chỉ xảy ra một lần lúc `npm start`.
+
+Mỗi mã tải 250 phiên: đủ để phần ảnh hưởng của SMA seed lên EMA50 giảm xuống dưới 0,1%, đồng thời tránh payload dư thừa của cửa sổ 500 phiên.
+
+Mỗi lần gọi nguồn dữ liệu có timeout mặc định 8 giây (`VNSTOCK_REQUEST_TIMEOUT_SECONDS`). App gọi VCI một lần rồi chuyển sang KBS, tránh lớp retry 30 giây × 3 của `Quote.history` giữ cả hàng đợi quá lâu.
+
+Khi một nguồn lỗi network, worker tạm bỏ qua nguồn đó trong 5 phút (`VNSTOCK_SOURCE_COOLDOWN_SECONDS`) để các mã kế tiếp không lặp lại cùng một timeout.
 
 Watch list có dạng:
 

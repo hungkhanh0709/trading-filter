@@ -5,16 +5,37 @@ Data fetcher module - Fetch và cache data từ vnstock API với error handling
 import sys
 import time
 import logging
+import os
 
 import pandas as pd
 
-from .vnstock_client import Quote, Reference
+from .vnstock_client import Quote, Reference, fetch_history_once
 from .price_normalizer import normalize_exchange, normalize_price_history
 
 
-# EMA50 is seeded after 50 bars. Fetching 500 provides a long convergence
-# runway while keeping each analysis request reasonably small.
-HISTORY_COUNT_BACK = 500
+# The largest direct lookback is EMA50 plus its 20-session momentum window
+# (about 70 bars), but that is not enough for a stable SMA-seeded EMA50.
+# At 250 bars the seed's remaining weight is only ~0.0335%, while 500 bars
+# doubles the payload for no meaningful signal improvement.
+HISTORY_COUNT_BACK = 250
+SOURCE_FAILURE_COOLDOWN_SECONDS = float(
+    os.environ.get("VNSTOCK_SOURCE_COOLDOWN_SECONDS", "300")
+)
+_SOURCE_UNAVAILABLE_UNTIL = {}
+
+
+def _source_is_cooling_down(source):
+    return _SOURCE_UNAVAILABLE_UNTIL.get(source.upper(), 0) > time.monotonic()
+
+
+def _mark_source_unavailable(source):
+    _SOURCE_UNAVAILABLE_UNTIL[source.upper()] = (
+        time.monotonic() + SOURCE_FAILURE_COOLDOWN_SECONDS
+    )
+
+
+def _mark_source_available(source):
+    _SOURCE_UNAVAILABLE_UNTIL.pop(source.upper(), None)
 
 
 class DataFetcher:
@@ -46,6 +67,7 @@ class DataFetcher:
         # Retry configuration
         self.max_retries = 3
         self.retry_delay = 2  # seconds
+        self._last_failure_transient = False
         
     def _retry_with_backoff(
         self,
@@ -68,6 +90,7 @@ class DataFetcher:
             Result from func or None on failure
         """
         attempt_limit = max_attempts or self.max_retries
+        self._last_failure_transient = False
 
         for attempt in range(1, attempt_limit + 1):
             try:
@@ -93,9 +116,18 @@ class DataFetcher:
                 
             except Exception as e:
                 error_msg = str(e)
+                is_transient = any(
+                    keyword in error_msg.lower()
+                    for keyword in [
+                        '502', '503', '504', 'bad gateway', 'timeout',
+                        'connection', 'network', 'api request failed',
+                        'failed to fetch data',
+                    ]
+                )
+                self._last_failure_transient = is_transient
                 
                 # Check if it's a network/API error
-                if any(keyword in error_msg.lower() for keyword in ['502', 'bad gateway', 'timeout', 'connection', 'network']):
+                if is_transient:
                     if attempt < attempt_limit:
                         wait_time = self.retry_delay * (2 ** (attempt - 1))  # exponential backoff
                         print(f"  ⚠️  {description}: Lỗi network ({error_msg[:50]}...), thử lại sau {wait_time}s ({attempt}/{attempt_limit})", file=sys.stderr)
@@ -131,13 +163,32 @@ class DataFetcher:
                 file=sys.stderr
             )
             
-            history = self._retry_with_backoff(
-                self.quote.history,
-                "Lịch sử giá",
-                count_back=HISTORY_COUNT_BACK,
-                # Quote.history already retries transient failures internally.
-                max_attempts=1,
-                report_final_error=not self.fallback_source
+            primary_started_at = time.monotonic()
+            if _source_is_cooling_down(self.source):
+                history = None
+                print(
+                    f"  ⏭️  {self.source} đang tạm nghỉ sau lỗi network; "
+                    "chuyển thẳng sang nguồn dự phòng",
+                    file=sys.stderr,
+                )
+            else:
+                history = self._retry_with_backoff(
+                    fetch_history_once,
+                    "Lịch sử giá",
+                    self.quote,
+                    count_back=HISTORY_COUNT_BACK,
+                    # One bounded VCI attempt, followed by explicit KBS fallback.
+                    max_attempts=1,
+                    report_final_error=not self.fallback_source
+                )
+                if history is not None:
+                    _mark_source_available(self.source)
+                elif self._last_failure_transient:
+                    _mark_source_unavailable(self.source)
+            print(
+                f"  ⏱️  {self.source}: "
+                f"{time.monotonic() - primary_started_at:.2f}s",
+                file=sys.stderr,
             )
 
             if history is None and self.fallback_source:
@@ -147,15 +198,33 @@ class DataFetcher:
                     file=sys.stderr
                 )
                 try:
+                    fallback_started_at = time.monotonic()
+                    if _source_is_cooling_down(self.fallback_source):
+                        print(
+                            f"  ⏭️  {self.fallback_source} cũng đang tạm nghỉ "
+                            "sau lỗi network",
+                            file=sys.stderr,
+                        )
+                        return False
                     fallback_quote = Quote(
                         symbol=self.symbol,
                         source=self.fallback_source
                     )
                     history = self._retry_with_backoff(
-                        fallback_quote.history,
+                        fetch_history_once,
                         f"Lịch sử giá ({self.fallback_source})",
+                        fallback_quote,
                         count_back=HISTORY_COUNT_BACK,
                         max_attempts=1
+                    )
+                    if history is not None:
+                        _mark_source_available(self.fallback_source)
+                    elif self._last_failure_transient:
+                        _mark_source_unavailable(self.fallback_source)
+                    print(
+                        f"  ⏱️  {self.fallback_source}: "
+                        f"{time.monotonic() - fallback_started_at:.2f}s",
+                        file=sys.stderr,
                     )
                     if history is not None:
                         self.quote = fallback_quote
@@ -168,7 +237,13 @@ class DataFetcher:
                     )
             
             if history is not None and not history.empty:
+                events_started_at = time.monotonic()
                 dividend_events = self._fetch_dividend_events(history)
+                print(
+                    f"  ⏱️  Sự kiện cổ tức: "
+                    f"{time.monotonic() - events_started_at:.2f}s",
+                    file=sys.stderr,
+                )
                 history, adjustments = self._restore_unadjusted_cash_dividends(
                     history,
                     dividend_events,

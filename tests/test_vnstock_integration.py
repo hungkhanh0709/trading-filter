@@ -9,13 +9,22 @@ import pandas as pd
 from vnstock_analyzer.analyzers.technical import TechnicalAnalyzer
 from vnstock_analyzer.analyzers.technical_modules.ma_detector import detect_golden_cross
 from vnstock_analyzer.analyzers.technical_modules.volume_analyzer import analyze_volume_trend
-from vnstock_analyzer.core.data_fetcher import DataFetcher, HISTORY_COUNT_BACK
+from vnstock_analyzer.core.data_fetcher import (
+    DataFetcher,
+    HISTORY_COUNT_BACK,
+    _SOURCE_UNAVAILABLE_UNTIL,
+)
 from vnstock_analyzer.core.price_normalizer import (
     normalize_price_history,
     price_tick,
     round_price_to_tick,
 )
-from vnstock_analyzer.core.vnstock_client import _safe_hosting_service
+from vnstock_analyzer.core.vnstock_client import (
+    REQUEST_TIMEOUT_SECONDS,
+    _bounded_send_request_direct,
+    _safe_hosting_service,
+    fetch_history_once,
+)
 from vnstock_analyzer.stock_analyzer import StockAnalyzer
 
 
@@ -34,6 +43,28 @@ def _price_history(rows=60):
 
 
 class DataFetcherContractTests(unittest.TestCase):
+    def setUp(self):
+        _SOURCE_UNAVAILABLE_UNTIL.clear()
+
+    def test_history_window_keeps_ema50_seed_influence_below_one_tenth_percent(self):
+        ema50_alpha = 2 / (50 + 1)
+        remaining_seed_weight = (1 - ema50_alpha) ** (HISTORY_COUNT_BACK - 50)
+
+        self.assertEqual(HISTORY_COUNT_BACK, 250)
+        self.assertLess(remaining_seed_weight, 0.001)
+
+    def test_history_call_bypasses_adapter_retry_when_provider_is_available(self):
+        quote = Mock()
+        provider = Mock()
+        quote._provider = provider
+        provider.history.return_value = _price_history()
+
+        result = fetch_history_once(quote, count_back=HISTORY_COUNT_BACK)
+
+        self.assertIs(result, provider.history.return_value)
+        provider.history.assert_called_once_with(count_back=HISTORY_COUNT_BACK)
+        quote.history.assert_not_called()
+
     @patch("vnstock_analyzer.core.data_fetcher.Quote")
     def test_initializes_public_quote_with_requested_source(self, quote_class):
         fetcher = DataFetcher("FPT", source="VCI")
@@ -85,6 +116,35 @@ class DataFetcherContractTests(unittest.TestCase):
             fallback_quote.history.call_args.kwargs,
             {"count_back": HISTORY_COUNT_BACK},
         )
+
+    @patch("vnstock_analyzer.core.data_fetcher.Reference")
+    @patch("vnstock_analyzer.core.data_fetcher.Quote")
+    def test_skips_unhealthy_primary_source_for_the_next_symbol(
+        self,
+        quote_class,
+        reference_class,
+    ):
+        primary_quote = Mock()
+        primary_quote.history.side_effect = ConnectionError("read timeout=8")
+        first_fallback = Mock()
+        first_fallback.history.return_value = _price_history()
+        second_primary = Mock()
+        second_fallback = Mock()
+        second_fallback.history.return_value = _price_history()
+        quote_class.side_effect = [
+            primary_quote,
+            first_fallback,
+            second_primary,
+            second_fallback,
+        ]
+        reference_class.return_value.events.return_value.calendar.return_value = None
+
+        self.assertTrue(DataFetcher("VJC").fetch_all_data())
+        self.assertTrue(DataFetcher("VPB").fetch_all_data())
+
+        primary_quote.history.assert_called_once()
+        second_primary.history.assert_not_called()
+        second_fallback.history.assert_called_once_with(count_back=HISTORY_COUNT_BACK)
 
     def test_restores_unadjusted_cash_dividend_prices_for_tradingview(self):
         history = pd.DataFrame({
@@ -302,6 +362,13 @@ class StockAnalyzerContractTests(unittest.TestCase):
 
 
 class DependencyContractTests(unittest.TestCase):
+    @patch("vnstock_analyzer.core.vnstock_client._original_send_request_direct")
+    def test_vnstock_socket_timeout_is_capped(self, send_request_direct):
+        _bounded_send_request_direct("https://example.test", {}, timeout=30)
+
+        self.assertEqual(REQUEST_TIMEOUT_SECONDS, 8)
+        self.assertEqual(send_request_direct.call_args.args[5], 8)
+
     def test_local_hosting_detector_workaround_is_narrow(self):
         def broken_detector():
             raise UnboundLocalError("hosting_service")
@@ -314,7 +381,7 @@ class DependencyContractTests(unittest.TestCase):
 
     def test_verified_vnstock_ecosystem_versions_are_installed(self):
         self.assertEqual(importlib.metadata.version("vnstock"), "4.0.6")
-        self.assertEqual(importlib.metadata.version("vnai"), "2.5.7")
+        self.assertEqual(importlib.metadata.version("vnai"), "2.5.8")
 
 
 if __name__ == "__main__":
