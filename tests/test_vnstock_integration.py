@@ -163,6 +163,9 @@ class DependencyContractTests(unittest.TestCase):
     def test_verified_vnstock_version_is_installed(self):
         self.assertEqual(importlib.metadata.version("vnstock"), "4.0.5")
 
+    def test_verified_vnai_version_is_installed(self):
+        self.assertEqual(importlib.metadata.version("vnai"), "2.5.8")
+
 
 if __name__ == "__main__":
     unittest.main()

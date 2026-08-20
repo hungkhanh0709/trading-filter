@@ -403,11 +403,11 @@
                     search: '',
                     errorSnackbar: false,
                     errorMessage: '',
-                    // Auto-analysis queue
-                    analyzingQueue: [],
+                    // Server-owned auto-analysis job
                     analyzingProgress: { completed: 0, total: 0 },
-                    maxConcurrent: 5,
                     autoAnalyzing: false,
+                    currentAnalysisJobId: null,
+                    analysisPollInFlight: false,
                     // Table sorting state
                     sortBy: [] // Vuetify v-model:sort-by binding
                 };
@@ -574,9 +574,13 @@
                 }
             },
             mounted() {
+                document.addEventListener('visibilitychange', this.handleVisibilityChange);
                 this.loadData().then(() => {
                     this.autoAnalyzeAll();
                 });
+            },
+            beforeUnmount() {
+                document.removeEventListener('visibilitychange', this.handleVisibilityChange);
             },
             watch: {
                 selectedExchange() {
@@ -1055,62 +1059,114 @@
                     };
 
                     console.log(`🚀 Auto-analyzing ${sortedSymbols.length} symbols (${vn30Symbols.length} VN30 priority)...`);
-                    console.log(`⏱️ Sequential mode: 2s delay between requests (~${Math.ceil(sortedSymbols.length * 2 / 60)} minutes total)`);
+                    try {
+                        sortedSymbols.forEach(item => {
+                            item.analyzing = !item.analysis;
+                            item.analysisError = null;
+                        });
 
-                    // Process sequentially with delay
-                    await this.analyzeBatch(sortedSymbols);
+                        const response = await fetch('/api/analysis-jobs', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ symbols: sortedSymbols.map(item => item.symbol) })
+                        });
+                        const result = await response.json();
 
-                    this.autoAnalyzing = false;
-                    console.log(`✅ Completed auto-analysis: ${this.analyzingProgress.completed}/${this.analyzingProgress.total}`);
-                },
-
-                async analyzeBatch(symbols) {
-                    // Sequential processing with 1s delay to avoid rate limiting
-                    for (let i = 0; i < symbols.length; i++) {
-                        const item = symbols[i];
-
-                        try {
-                            await this.analyzeSymbolSilent(item);
-                            this.analyzingProgress.completed++;
-                        } catch (err) {
-                            console.error(`❌ Error analyzing ${item.symbol}:`, err);
-                            this.analyzingProgress.completed++;
+                        if (!response.ok || !result.success) {
+                            throw new Error(result.error || 'Không thể khởi tạo hàng đợi phân tích');
                         }
 
-                        // Add 1s delay between requests (except for the last one)
-                        if (i < symbols.length - 1) {
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-                        }
+                        this.currentAnalysisJobId = result.data.id;
+                        await this.monitorAnalysisJob(result.data.id);
+                    } catch (error) {
+                        console.error('❌ Auto-analysis failed:', error);
+                        this.errorMessage = 'Không thể phân tích dữ liệu: ' + error.message;
+                        this.errorSnackbar = true;
+                    } finally {
+                        sortedSymbols.forEach(item => {
+                            item.analyzing = false;
+                        });
+                        this.autoAnalyzing = false;
+                        this.currentAnalysisJobId = null;
+                        console.log(`✅ Analysis queue stopped: ${this.analyzingProgress.completed}/${this.analyzingProgress.total}`);
                     }
                 },
 
-                async analyzeSymbolSilent(item) {
-                    if (item.analyzing || item.analysis) return; // Skip if already analyzing or analyzed
+                async monitorAnalysisJob(jobId) {
+                    let consecutiveErrors = 0;
 
-                    item.analyzing = true;
-                    item.analysisError = null;
+                    while (this.currentAnalysisJobId === jobId) {
+                        let job;
+                        try {
+                            job = await this.syncAnalysisJob(jobId);
+                            if (job) consecutiveErrors = 0;
+                        } catch (error) {
+                            consecutiveErrors++;
+                            console.warn(`⚠️ Failed to poll analysis job (${consecutiveErrors}/5):`, error);
+                            if (consecutiveErrors >= 5) throw error;
+                        }
 
+                        if (!job) {
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            continue;
+                        }
+                        if (job.status === 'completed' || job.status === 'failed') return;
+
+                        // Polling may be throttled in a background tab, but the
+                        // actual queue now runs on the server and keeps moving.
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                },
+
+                async syncAnalysisJob(jobId = this.currentAnalysisJobId) {
+                    if (!jobId || this.analysisPollInFlight) return null;
+
+                    this.analysisPollInFlight = true;
                     try {
-                        const response = await fetch(`/api/analyze/${item.symbol}`);
+                        const response = await fetch(`/api/analysis-jobs/${jobId}`, { cache: 'no-store' });
                         const result = await response.json();
+                        if (!response.ok || !result.success) {
+                            throw new Error(result.error || 'Không thể đọc tiến độ phân tích');
+                        }
 
+                        this.applyAnalysisJob(result.data);
+                        return result.data;
+                    } finally {
+                        this.analysisPollInFlight = false;
+                    }
+                },
+
+                applyAnalysisJob(job) {
+                    this.analyzingProgress = {
+                        completed: job.completed,
+                        total: job.total
+                    };
+
+                    const itemsBySymbol = new Map(
+                        (this.matrixData?.symbols || []).map(item => [item.symbol, item])
+                    );
+
+                    Object.entries(job.results || {}).forEach(([symbol, result]) => {
+                        const item = itemsBySymbol.get(symbol);
+                        if (!item) return;
+
+                        item.analyzing = false;
                         if (result.success) {
-                            const potentialSignal = this.evaluatePotentialSignal(result.data);
-                            Object.assign(item, {
-                                ...item,
-                                analysis: result.data,
-                                potentialSignal,
-                                analyzing: false,
-                                analysisError: null
-                            });
-                            console.log(`✅ [${this.analyzingProgress.completed + 1}/${this.analyzingProgress.total}] ${item.symbol}: ${potentialSignal?.label || 'Đã phân tích'}`);
+                            item.analysis = result.data;
+                            item.potentialSignal = this.evaluatePotentialSignal(result.data);
+                            item.analysisError = null;
                         } else {
                             item.analysisError = result.error || 'Analysis failed';
-                            item.analyzing = false;
                         }
-                    } catch (error) {
-                        item.analysisError = error.message;
-                        item.analyzing = false;
+                    });
+                },
+
+                handleVisibilityChange() {
+                    if (!document.hidden && this.currentAnalysisJobId) {
+                        // Immediately catch up after the browser resumes this tab.
+                        this.syncAnalysisJob().catch(error => {
+                            console.error('❌ Failed to refresh analysis progress:', error);
+                        });
                     }
                 }
             },

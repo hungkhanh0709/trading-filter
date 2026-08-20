@@ -121,6 +121,8 @@ Phân tích kỹ thuật cho một mã
 - Click icon 📊 "Phân tích tất cả"
 - Hoặc click "Phân tích" trên từng mã
 - Kết quả: MA analysis, convergence, momentum
+- Hàng đợi chạy ở server nên vẫn tiếp tục khi tab trình duyệt ở chế độ nền
+- Mỗi mã có hard timeout mặc định 120 giây; có thể chỉnh bằng `ANALYSIS_TIMEOUT_MS`
 
 ## 🎨 UI Features
 

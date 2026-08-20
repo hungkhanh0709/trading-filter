@@ -3,6 +3,7 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { AnalysisJobManager } = require('./src/analysis-job-manager');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,12 +24,15 @@ const HNX30_FILE = path.join(__dirname, 'data', 'hnx30.json');
 const PYTHON_VENV = path.join(__dirname, '.venv', 'bin', 'python');
 const FETCH_PRICES_SCRIPT = path.join(__dirname, 'scripts', 'fetch_prices.py');
 const ANALYZE_STOCK_SCRIPT = path.join(__dirname, 'scripts', 'analyze_stock.py');
+const ANALYSIS_TIMEOUT_MS = Number(process.env.ANALYSIS_TIMEOUT_MS) || 120 * 1000;
+const ANALYSIS_JOB_DELAY_MS = Number(process.env.ANALYSIS_JOB_DELAY_MS) || 1000;
 
 // Analysis cache - 180 minutes TTL
 let analysisCache = {
     data: {},
     ttl: 180 * 60 * 1000
 };
+const inFlightAnalyses = new Map();
 
 // Middleware
 app.use(cors());
@@ -118,23 +122,7 @@ app.get('/api/analyze/:symbol', async (req, res) => {
         const symbol = req.params.symbol.toUpperCase();
         const forceRefresh = req.query.force === '1';
 
-        // Check cache
-        const now = Date.now();
-        if (!forceRefresh && analysisCache.data[symbol]) {
-            const cached = analysisCache.data[symbol];
-            if (now - cached.timestamp < analysisCache.ttl) {
-                console.log(`📦 Using cached analysis for ${symbol}`);
-                return res.json({
-                    success: true,
-                    data: cached.result,
-                    cached: true
-                });
-            }
-        }
-
-        // Analyze
-        console.log(`📊 Analyzing ${symbol}...`);
-        const result = await analyzeStock(symbol);
+        const { result, cached } = await getOrAnalyzeStock(symbol, forceRefresh);
 
         if (result.error) {
             return res.json({
@@ -144,16 +132,10 @@ app.get('/api/analyze/:symbol', async (req, res) => {
             });
         }
 
-        // Cache result
-        analysisCache.data[symbol] = {
-            result: result,
-            timestamp: now
-        };
-
         res.json({
             success: true,
             data: result,
-            cached: false
+            cached
         });
     } catch (error) {
         console.error(`❌ Error analyzing ${req.params.symbol}:`, error);
@@ -163,6 +145,78 @@ app.get('/api/analyze/:symbol', async (req, res) => {
         });
     }
 });
+
+const analysisJobs = new AnalysisJobManager({
+    analyze: async symbol => (await getOrAnalyzeStock(symbol)).result,
+    delayMs: ANALYSIS_JOB_DELAY_MS
+});
+
+/**
+ * POST /api/analysis-jobs
+ * Start a server-owned analysis queue which is independent of browser timers.
+ */
+app.post('/api/analysis-jobs', (req, res) => {
+    const requestedSymbols = Array.isArray(req.body?.symbols) ? req.body.symbols : [];
+    const symbols = [...new Set(
+        requestedSymbols
+            .filter(symbol => typeof symbol === 'string')
+            .map(symbol => symbol.trim().toUpperCase())
+            .filter(symbol => /^[A-Z0-9]{1,10}$/.test(symbol))
+    )];
+
+    if (symbols.length === 0) {
+        return res.status(400).json({ success: false, error: 'No valid symbols provided' });
+    }
+
+    const job = analysisJobs.create(symbols);
+    console.log(`🚀 Started analysis job ${job.id} for ${job.total} symbols`);
+    res.status(202).json({ success: true, data: job });
+});
+
+/**
+ * GET /api/analysis-jobs/:id
+ * Return accumulated results so a suspended tab can catch up on resume.
+ */
+app.get('/api/analysis-jobs/:id', (req, res) => {
+    const job = analysisJobs.get(req.params.id);
+
+    if (!job) {
+        return res.status(404).json({ success: false, error: 'Analysis job not found' });
+    }
+
+    res.json({ success: true, data: job });
+});
+
+async function getOrAnalyzeStock(symbol, forceRefresh = false) {
+    const now = Date.now();
+    const cached = analysisCache.data[symbol];
+
+    if (!forceRefresh && cached && now - cached.timestamp < analysisCache.ttl) {
+        console.log(`📦 Using cached analysis for ${symbol}`);
+        return { result: cached.result, cached: true };
+    }
+
+    if (!forceRefresh && inFlightAnalyses.has(symbol)) {
+        console.log(`🔄 Joining in-flight analysis for ${symbol}`);
+        return { result: await inFlightAnalyses.get(symbol), cached: false };
+    }
+
+    console.log(`📊 Analyzing ${symbol}...`);
+    const promise = analyzeStock(symbol);
+    inFlightAnalyses.set(symbol, promise);
+
+    try {
+        const result = await promise;
+        if (!result.error) {
+            analysisCache.data[symbol] = { result, timestamp: Date.now() };
+        }
+        return { result, cached: false };
+    } finally {
+        if (inFlightAnalyses.get(symbol) === promise) {
+            inFlightAnalyses.delete(symbol);
+        }
+    }
+}
 
 /**
  * Get symbols list based on exchange filter
@@ -266,6 +320,29 @@ async function analyzeStock(symbol) {
 
         let stdout = '';
         let stderr = '';
+        let settled = false;
+
+        const finish = (callback, value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            callback(value);
+        };
+
+        const timeout = setTimeout(() => {
+            console.error(`⏱️ Analysis timed out for ${symbol} after ${ANALYSIS_TIMEOUT_MS}ms`);
+            pythonProcess.kill('SIGTERM');
+            setTimeout(() => {
+                if (pythonProcess.exitCode === null && pythonProcess.signalCode === null) {
+                    pythonProcess.kill('SIGKILL');
+                }
+            }, 5000).unref();
+            finish(resolve, {
+                symbol,
+                error: `Analysis timed out after ${Math.ceil(ANALYSIS_TIMEOUT_MS / 1000)} seconds`
+            });
+        }, ANALYSIS_TIMEOUT_MS);
+        timeout.unref();
 
         pythonProcess.stdout.on('data', (data) => {
             stdout += data.toString();
@@ -281,10 +358,12 @@ async function analyzeStock(symbol) {
         });
 
         pythonProcess.on('close', (code) => {
+            if (settled) return;
+
             if (code !== 0) {
                 console.error(`❌ Analysis failed for ${symbol} with code ${code}`);
                 if (stderr) console.error('stderr:', stderr);
-                return resolve({
+                return finish(resolve, {
                     symbol: symbol,
                     error: `Analysis failed with exit code ${code}`
                 });
@@ -298,7 +377,7 @@ async function analyzeStock(symbol) {
                 // Strategy 1: Parse entire stdout as JSON
                 try {
                     result = JSON.parse(trimmedStdout);
-                    resolve(result);
+                    finish(resolve, result);
                     return;
                 } catch (e) {
                     // Continue to next strategy
@@ -312,7 +391,7 @@ async function analyzeStock(symbol) {
                     const jsonStr = trimmedStdout.substring(firstBrace, lastBrace + 1);
                     try {
                         result = JSON.parse(jsonStr);
-                        resolve(result);
+                        finish(resolve, result);
                         return;
                     } catch (e) {
                         // Continue to next strategy
@@ -326,7 +405,7 @@ async function analyzeStock(symbol) {
                     if (line.startsWith('{')) {
                         try {
                             result = JSON.parse(line);
-                            resolve(result);
+                            finish(resolve, result);
                             return;
                         } catch (e) {
                             // Continue to next line
@@ -337,14 +416,14 @@ async function analyzeStock(symbol) {
                 // All parsing strategies failed
                 console.error(`❌ No valid JSON output for ${symbol}`);
                 console.error('stdout:', stdout);
-                resolve({
+                finish(resolve, {
                     symbol: symbol,
                     error: 'No valid JSON output from analysis script'
                 });
             } catch (error) {
                 console.error(`❌ Error parsing JSON for ${symbol}:`, error.message);
                 console.error('stdout:', stdout);
-                resolve({
+                finish(resolve, {
                     symbol: symbol,
                     error: `Failed to parse JSON: ${error.message}`
                 });
@@ -353,7 +432,7 @@ async function analyzeStock(symbol) {
 
         pythonProcess.on('error', (error) => {
             console.error(`❌ Failed to start analysis for ${symbol}:`, error);
-            reject(error);
+            finish(reject, error);
         });
     });
 }
