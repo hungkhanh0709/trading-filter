@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stock Filter - VN30 Tracker (Matrix View)</title>
+    <title>Triple EMA Potential Monitor</title>
     <link href="https://cdn.jsdelivr.net/npm/vuetify@3.5.1/dist/vuetify.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" rel="stylesheet">
     <style>
@@ -40,44 +40,6 @@
             font-size: 1em;
         }
 
-        .matrix-cell {
-            text-align: center;
-            padding: 4px;
-        }
-
-        .status-new {
-            color: #4CAF50;
-            font-weight: bold;
-        }
-
-        .status-normal {
-            color: #2196F3;
-        }
-
-        .status-removed {
-            color: #9E9E9E;
-            text-decoration: line-through;
-        }
-
-        .status-absent {
-            color: #E0E0E0;
-        }
-
-        .date-header {
-            font-weight: 600;
-            font-size: 0.8em;
-            white-space: nowrap;
-            writing-mode: horizontal-tb;
-        }
-
-        .legend-item {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            margin-right: 16px;
-            font-size: 0.9em;
-        }
-
         .price-cell {
             font-family: 'Courier New', monospace;
             font-size: 0.95em;
@@ -99,24 +61,6 @@
             font-weight: 600;
         }
 
-        /* HIGH Warning Pulse Animation */
-        .pulse-animation {
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-
-        @keyframes pulse {
-
-            0%,
-            100% {
-                transform: scale(1);
-                opacity: 1;
-            }
-
-            50% {
-                transform: scale(1.15);
-                opacity: 0.85;
-            }
-        }
     </style>
 </head>
 
@@ -126,7 +70,7 @@
             <v-app-bar color="primary" density="compact">
                 <v-app-bar-title>
                     <v-icon icon="mdi-chart-line" class="mr-2"></v-icon>
-                    Stock Filter - Matrix View
+                    Triple EMA Potential Monitor
                 </v-app-bar-title>
                 <v-spacer></v-spacer>
                 <!-- Analysis Progress -->
@@ -146,33 +90,20 @@
                     <v-card>
                         <!-- Exchange Filter Tabs -->
                         <v-tabs v-model="selectedExchange" density="compact" class="px-4">
+                            <v-tab value="POTENTIAL">POTENTIAL</v-tab>
                             <v-tab value="WATCHLIST">Watch List</v-tab>
                             <v-tab value="VN30">VN30</v-tab>
                             <v-tab value="HNX30">HNX30</v-tab>
                             <v-tab value="VN100">VN100</v-tab>
-                            <v-tab value="POTENTIAL">POTENTIAL</v-tab>
                         </v-tabs>
 
                         <v-data-table :headers="matrixHeaders" :items="sortedSymbols" :items-per-page="100"
                             v-model:sort-by="sortBy" :must-sort="false" :multi-sort="false" class="elevation-1"
-                            density="compact" :search="search">
+                            density="compact" :search="search" :no-data-text="tableNoDataText">
                             <template v-slot:top>
                                 <v-text-field v-model="search" label="Tìm kiếm mã" prepend-inner-icon="mdi-magnify"
                                     variant="outlined" hide-details single-line class="ma-4"
                                     density="compact"></v-text-field>
-                                <v-alert v-if="selectedExchange === 'POTENTIAL'" type="info" variant="tonal"
-                                    class="mx-4 mb-4" density="compact">
-                                    <div style="font-weight: 600;">
-                                        {{ potentialStats.qualified }}/{{ potentialStats.analyzed }} mã đạt bộ lọc
-                                        "Tiềm năng"
-                                    </div>
-                                    <div v-if="potentialStageSummary.length" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
-                                        <v-chip v-for="stage in potentialStageSummary" :key="stage.key" size="small"
-                                            :color="stage.color" variant="flat">
-                                            {{ stage.label }}: {{ stage.count }}
-                                        </v-chip>
-                                    </div>
-                                </v-alert>
                             </template>
 
                             <!-- Custom Header for Price Column with Stats -->
@@ -208,16 +139,17 @@
                             </template>
 
                             <template v-slot:item.potential="{ item }">
-                                <v-tooltip v-if="item.potentialSignal" location="top">
+                                <div v-if="item.potentialSignal" style="display: flex; flex-direction: column; align-items: center; gap: 3px;">
+                                <v-tooltip location="top">
                                     <template v-slot:activator="{ props }">
-                                        <v-chip v-bind="props" :color="item.potentialSignal.color"
-                                            :prepend-icon="item.potentialSignal.icon" size="small"
-                                            class="text-white font-weight-bold">
+                                        <v-chip v-bind="props" color="amber-darken-2" variant="tonal"
+                                            size="small" class="font-weight-bold">
                                             {{ item.potentialSignal.badge }}
                                         </v-chip>
                                     </template>
                                     <div v-html="item.potentialSignal.tooltip"></div>
                                 </v-tooltip>
+                                </div>
                                 <span v-else style="color: #999;">-</span>
                             </template>
 
@@ -255,6 +187,13 @@
                                         </v-chip>
                                     </template>
                                     <div v-html="item.analysis.price_position.tooltip"></div>
+                                    <div style="margin-top: 6px; opacity: 0.85;">
+                                        Nguồn: {{ item.analysis.data_source || 'không xác định' }} ·
+                                        Phiên: {{ item.analysis.data_as_of || 'không xác định' }}<br>
+                                        Ba đường EMA(close) 10/20/50 · seed SMA · giá lịch sử chưa điều chỉnh<br>
+                                        Hoàn nguyên {{ item.analysis.cash_dividend_adjustments?.length || 0 }} sự kiện cổ tức tiền mặt ·
+                                        {{ item.analysis.data_price_mode === 'UNADJUSTED_RESTORED' ? 'đã xác minh corporate actions' : 'chưa xác minh corporate actions' }}
+                                    </div>
                                 </v-tooltip>
                                 <span v-else style="color: #999;">-</span>
                             </template>
@@ -297,7 +236,7 @@
                                             <v-icon v-bind="props"
                                                 :icon="item.analysis.golden_cross?.icon || 'mdi-star-circle'"
                                                 :color="item.analysis.golden_cross?.color || 'grey'" size="small"
-                                                :style="{opacity: item.analysis.golden_cross?.has_cross ? 1 : 0.3}">
+                                                :style="{opacity: item.analysis.golden_cross?.has_recent_cross || item.analysis.golden_cross?.has_cross ? 1 : 0.3}">
                                             </v-icon>
                                         </template>
                                         <div v-html="item.analysis.golden_cross?.tooltip || 'No Golden Cross'"></div>
@@ -367,6 +306,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.15/dist/vue.global.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/vuetify@3.5.1/dist/vuetify.min.js"></script>
+    <script src="/potential-ranker.js"></script>
     <script>
         const { createApp } = Vue;
         const { createVuetify } = Vuetify;
@@ -394,32 +334,41 @@
             data() {
                 return {
                     loading: false,
-                    selectedExchange: 'WATCHLIST',
+                    selectedExchange: 'POTENTIAL',
                     matrixData: {
-                        dates: [],
-                        symbols: [],
-                        stats: {}
+                        symbols: []
                     },
                     search: '',
                     errorSnackbar: false,
                     errorMessage: '',
-                    // Auto-analysis queue
-                    analyzingQueue: [],
                     analyzingProgress: { completed: 0, total: 0 },
-                    maxConcurrent: 5,
                     autoAnalyzing: false,
+                    analysisRunId: 0,
+                    currentAnalysisJobId: null,
+                    analysisPollInFlight: false,
                     // Table sorting state
                     sortBy: [] // Vuetify v-model:sort-by binding
                 };
             },
             computed: {
                 displayedSymbols() {
-                    const symbols = this.matrixData?.symbols || [];
+                    // Potential is an observation table, not a filter. Every
+                    // symbol stays visible, including zero-star rows.
+                    return this.matrixData?.symbols || [];
+                },
+                tableNoDataText() {
                     if (this.selectedExchange !== 'POTENTIAL') {
-                        return symbols;
+                        return 'No data available';
                     }
-
-                    return symbols.filter(symbol => symbol.potentialSignal?.isPotential);
+                    if (this.autoAnalyzing) {
+                        return `Đang phân tích ${this.analyzingProgress.completed}/${this.analyzingProgress.total} mã.`;
+                    }
+                    const total = this.matrixData?.symbols?.length || 0;
+                    const analyzed = (this.matrixData?.symbols || []).filter(symbol => !!symbol.analysis).length;
+                    if (analyzed < total) {
+                        return `Mới phân tích ${analyzed}/${total} mã. Hãy bấm nút Phân tích tất cả để tiếp tục.`;
+                    }
+                    return 'Không có mã trong danh sách theo dõi.';
                 },
                 // Sorted symbols
                 sortedSymbols() {
@@ -431,10 +380,7 @@
 
                     // Default sort
                     if (!this.sortBy || this.sortBy.length === 0) {
-                        if (this.selectedExchange === 'POTENTIAL') {
-                            return this.applySortByPotential(symbols);
-                        }
-                        return this.applySortByPriceVsMa50(symbols);
+                        return this.applySortByPotential(symbols);
                     }
 
                     // Use custom sorting based on clicked column
@@ -469,37 +415,6 @@
                         neutral,
                         total: up + down + neutral
                     };
-                },
-                potentialStats() {
-                    const symbols = this.matrixData?.symbols || [];
-                    const analyzed = symbols.filter(symbol => !!symbol.analysis).length;
-                    const qualified = symbols.filter(symbol => symbol.potentialSignal?.isPotential).length;
-
-                    return {
-                        analyzed,
-                        qualified
-                    };
-                },
-                potentialStageSummary() {
-                    const stageMeta = [
-                        { key: 'PRE-BREAKOUT', label: 'PRE-BREAKOUT', color: 'indigo' },
-                        { key: 'BREAKOUT EARLY', label: 'BREAKOUT EARLY', color: 'deep-purple' },
-                        { key: 'PULLBACK ENTRY', label: 'PULLBACK ENTRY', color: 'teal' },
-                        { key: 'PERFECT ORDER CONTINUATION', label: 'PO CONTINUATION', color: 'green' }
-                    ];
-
-                    const counts = new Map(stageMeta.map(stage => [stage.key, 0]));
-
-                    (this.matrixData?.symbols || []).forEach(symbol => {
-                        const stage = symbol.potentialSignal?.stage;
-                        if (symbol.potentialSignal?.isPotential && counts.has(stage)) {
-                            counts.set(stage, counts.get(stage) + 1);
-                        }
-                    });
-
-                    return stageMeta
-                        .map(stage => ({ ...stage, count: counts.get(stage.key) || 0 }))
-                        .filter(stage => stage.count > 0);
                 },
                 matrixHeaders() {
                     const headers = [
@@ -568,51 +483,33 @@
                         },
                     ];
 
-                    return this.selectedExchange === 'POTENTIAL'
-                        ? headers
-                        : headers.filter(header => header.key !== 'potential');
+                    return headers;
                 }
             },
             mounted() {
-                this.loadData().then(() => {
-                    this.autoAnalyzeAll();
+                document.addEventListener('visibilitychange', this.handleVisibilityChange);
+                this.loadData().then(loaded => {
+                    if (loaded) this.autoAnalyzeAll();
                 });
+            },
+            beforeUnmount() {
+                document.removeEventListener('visibilitychange', this.handleVisibilityChange);
             },
             watch: {
                 selectedExchange() {
-                    this.loadData().then(() => {
-                        this.autoAnalyzeAll();
+                    // Cancel the previous app tab's server job. Moving this
+                    // browser tab to the background does not cancel anything.
+                    this.analysisRunId += 1;
+                    this.autoAnalyzing = false;
+                    this.cancelCurrentAnalysisJob();
+                    this.loadData().then(loaded => {
+                        if (loaded) this.autoAnalyzeAll();
                     });
                 }
             },
             methods: {
-                /**
-                 * Apply priority-based sorting (default when no column clicked)
-                 */
-                applySortByPriceVsMa50(symbols) {
-                    return symbols.sort((a, b) => {
-                        const aPriceVsMA50 = Math.abs(a.analysis?.price_position?.vs_ma50);
-                        const bPriceVsMA50 = Math.abs(b.analysis?.price_position?.vs_ma50);
-                        // Closer to MA50 means higher priority
-                        return aPriceVsMA50 - bPriceVsMA50;
-                    });
-                },
-
                 applySortByPotential(symbols) {
-                    return symbols.sort((a, b) => {
-                        const stageDiff = (b.potentialSignal?.stagePriority ?? -Infinity) - (a.potentialSignal?.stagePriority ?? -Infinity);
-                        if (stageDiff !== 0) return stageDiff;
-
-                        const scoreDiff = (b.potentialSignal?.score ?? -Infinity) - (a.potentialSignal?.score ?? -Infinity);
-                        if (scoreDiff !== 0) return scoreDiff;
-
-                        const entryDiff = (b.potentialSignal?.entryScore ?? -Infinity) - (a.potentialSignal?.entryScore ?? -Infinity);
-                        if (entryDiff !== 0) return entryDiff;
-
-                        const aPriceVsMA50 = Math.abs(a.analysis?.price_position?.vs_ma50 ?? Infinity);
-                        const bPriceVsMA50 = Math.abs(b.analysis?.price_position?.vs_ma50 ?? Infinity);
-                        return aPriceVsMA50 - bPriceVsMA50;
-                    });
+                    return symbols.sort(PotentialRanker.comparePotentialRows);
                 },
 
                 /**
@@ -647,17 +544,7 @@
                         },
 
                         potential: (a, b) => {
-                            const aStage = a.potentialSignal?.stagePriority ?? -Infinity;
-                            const bStage = b.potentialSignal?.stagePriority ?? -Infinity;
-                            if (aStage !== bStage) return aStage - bStage;
-
-                            const aScore = a.potentialSignal?.score ?? -Infinity;
-                            const bScore = b.potentialSignal?.score ?? -Infinity;
-                            if (aScore !== bScore) return aScore - bScore;
-
-                            const aEntry = a.potentialSignal?.entryScore ?? -Infinity;
-                            const bEntry = b.potentialSignal?.entryScore ?? -Infinity;
-                            return aEntry - bEntry;
+                            return (a.potentialSignal?.stars ?? -1) - (b.potentialSignal?.stars ?? -1);
                         },
 
                         // Price vs MA: by distance to MA50
@@ -674,15 +561,18 @@
                             return aConv - bConv;
                         },
 
-                        // Order & Crosses: composite score
+                        // Order & Crosses: explicit factual ordering, no score.
                         order_crosses: (a, b) => {
-                            const aScore = (a.analysis?.perfect_order ? 100 : 0) +
-                                (a.analysis?.golden_cross?.has_cross ? 50 : 0) -
-                                (a.analysis?.death_cross?.has_cross ? 100 : 0);
-                            const bScore = (b.analysis?.perfect_order ? 100 : 0) +
-                                (b.analysis?.golden_cross?.has_cross ? 50 : 0) -
-                                (b.analysis?.death_cross?.has_cross ? 100 : 0);
-                            return aScore - bScore;
+                            const fields = [
+                                item => !item.analysis?.death_cross?.has_cross,
+                                item => !!item.analysis?.perfect_order,
+                                item => !!(item.analysis?.golden_cross?.has_recent_cross || item.analysis?.golden_cross?.has_cross)
+                            ];
+                            for (const field of fields) {
+                                const difference = Number(field(a)) - Number(field(b));
+                                if (difference !== 0) return difference;
+                            }
+                            return 0;
                         },
 
                         // Expansion: by quality (STRONG > MODERATE > WEAK > CONTRACTING)
@@ -732,293 +622,29 @@
                     if (change < 0) return 'change-negative';
                     return 'change-neutral';
                 },
-                evaluatePotentialSignal(analysis) {
-                    if (!analysis || analysis.error) {
-                        return null;
-                    }
-
-                    const matched = [];
-                    const warnings = [];
-                    let structureScore = 0;
-                    let entryScore = 0;
-
-                    const priceVsMA10 = analysis.price_position?.vs_ma10 ?? -Infinity;
-                    const priceVsMA20 = analysis.price_position?.vs_ma20 ?? -Infinity;
-                    const priceVsMA50 = analysis.price_position?.vs_ma50 ?? -Infinity;
-                    const convergenceLevel = analysis.convergence?.level;
-                    const momentumAlignment = analysis.momentum?.alignment;
-                    const expansionQuality = analysis.expansion?.quality;
-                    const volumeTrend = analysis.volume_analysis?.trend;
-                    const goldenCrosses = analysis.golden_cross?.crosses || [];
-                    const deathCrosses = analysis.death_cross?.crosses || [];
-
-                    const hasPerfectOrder = !!analysis.perfect_order;
-                    const hasGoldenCross = !!analysis.golden_cross?.has_cross;
-                    const hasDeathCross = !!analysis.death_cross?.has_cross;
-                    const nearMA20 = priceVsMA20 >= -1.2 && priceVsMA20 <= 2.5;
-                    const nearMA50 = priceVsMA50 >= -2.5 && priceVsMA50 <= 2.5;
-                    const supportZone = nearMA20 || nearMA50;
-                    const aboveSupport = priceVsMA20 >= -1.5 && priceVsMA50 >= -3;
-                    const aboveAllThree = priceVsMA10 >= 0 && priceVsMA20 >= 0 && priceVsMA50 >= 0;
-                    const nearBreakoutMA50 = priceVsMA50 >= -1.5;
-                    const reclaimedMA20 = priceVsMA20 >= 0;
-                    const bullishMomentum = ['BULLISH_ALIGNED', 'MOSTLY_BULLISH'].includes(momentumAlignment);
-                    const nonBearishMomentum = !['MOSTLY_BEARISH', 'BEARISH_ALIGNED'].includes(momentumAlignment);
-                    const tightConvergence = ['SUPER_TIGHT', 'TIGHT'].includes(convergenceLevel);
-                    const goodExpansion = ['STRONG', 'MODERATE'].includes(expansionQuality);
-                    const accumulationVolume = ['DECREASING', 'STABLE'].includes(volumeTrend);
-                    const expandingVolume = volumeTrend === 'INCREASING';
-                    const extendedAboveMA20 = priceVsMA20 > 4.5;
-                    const extendedAboveMA50 = priceVsMA50 > 8;
-                    const tooExtended = extendedAboveMA20 || extendedAboveMA50;
-                    const underPressure = priceVsMA20 < -2.5 || priceVsMA50 < -4;
-                    const freshGoldenCross = hasGoldenCross && goldenCrosses.length > 0;
-                    const severeDeathCross = hasDeathCross && deathCrosses.length > 0;
-
-                    if (hasPerfectOrder) {
-                        structureScore += 3;
-                        matched.push('Perfect Order');
-                    }
-
-                    if (freshGoldenCross) {
-                        structureScore += 3;
-                        matched.push('Golden Cross');
-                    } else if (hasGoldenCross) {
-                        structureScore += 2;
-                        matched.push('Golden Cross');
-                    }
-
-                    if (expansionQuality === 'MODERATE') {
-                        structureScore += 2;
-                        matched.push('MA expansion vừa');
-                    } else if (expansionQuality === 'STRONG') {
-                        structureScore += 1;
-                        matched.push('MA expansion mạnh');
-                    }
-
-                    if (bullishMomentum) {
-                        structureScore += 2;
-                        matched.push('Momentum bullish');
-                    } else if (nonBearishMomentum) {
-                        structureScore += 1;
-                        matched.push('Momentum không bearish');
-                    }
-
-                    if (priceVsMA20 >= 0 && priceVsMA50 >= 0) {
-                        entryScore += 2;
-                        matched.push('Giá trên MA20 và MA50');
-                    } else if (priceVsMA20 >= 0) {
-                        entryScore += 1;
-                        matched.push('Giá trên MA20');
-                    }
-
-                    if (nearMA20) {
-                        entryScore += 3;
-                        matched.push('Điểm vào gần MA20');
-                    } else if (nearMA50) {
-                        entryScore += 2;
-                        matched.push('Điểm vào gần MA50');
-                    }
-
-                    if (convergenceLevel === 'SUPER_TIGHT') {
-                        entryScore += 3;
-                        matched.push('Convergence super tight');
-                    } else if (convergenceLevel === 'TIGHT') {
-                        entryScore += 2;
-                        matched.push('Convergence tight');
-                    }
-
-                    if (accumulationVolume) {
-                        entryScore += 1;
-                        matched.push(volumeTrend === 'DECREASING' ? 'Volume tích luỹ' : 'Volume ổn định');
-                    } else if (expandingVolume && tightConvergence && priceVsMA20 >= 0) {
-                        entryScore += 1;
-                        matched.push('Volume mở rộng theo breakout');
-                    }
-
-                    if (hasDeathCross) {
-                        structureScore -= severeDeathCross ? 6 : 4;
-                        warnings.push('Death Cross');
-                    }
-
-                    if (!nonBearishMomentum) {
-                        structureScore -= 4;
-                        warnings.push('Momentum bearish');
-                    }
-
-                    if (tooExtended) {
-                        entryScore -= 4;
-                        warnings.push('Giá đã chạy quá xa MA');
-                    }
-
-                    if (underPressure) {
-                        entryScore -= 3;
-                        warnings.push('Giá mất vùng hỗ trợ MA20/MA50');
-                    }
-
-                    if (priceVsMA10 < -2) {
-                        entryScore -= 1;
-                        warnings.push('Phản ứng ngắn hạn yếu dưới MA10');
-                    }
-
-                    const baseReady =
-                        supportZone &&
-                        aboveSupport &&
-                        !tooExtended &&
-                        !underPressure;
-
-                    const perfectOrderContinuationReady =
-                        hasPerfectOrder &&
-                        goodExpansion &&
-                        bullishMomentum &&
-                        aboveAllThree &&
-                        priceVsMA20 >= 0 &&
-                        priceVsMA20 <= 3.5 &&
-                        !hasDeathCross;
-
-                    const breakoutEarlyReady =
-                        aboveAllThree &&
-                        reclaimedMA20 &&
-                        nearBreakoutMA50 &&
-                        !hasPerfectOrder &&
-                        nonBearishMomentum &&
-                        baseReady &&
-                        (tightConvergence || freshGoldenCross || hasGoldenCross) &&
-                        !hasDeathCross;
-
-                    const preBreakoutReady =
-                        tightConvergence &&
-                        nonBearishMomentum &&
-                        baseReady &&
-                        !aboveAllThree &&
-                        (priceVsMA20 >= -0.8 || priceVsMA50 >= -0.8) &&
-                        !hasDeathCross;
-
-                    const pullbackEntryReady =
-                        hasPerfectOrder &&
-                        bullishMomentum &&
-                        baseReady &&
-                        !tooExtended &&
-                        (nearMA20 || nearMA50) &&
-                        !hasDeathCross;
-
-                    const stageCandidates = [
-                        {
-                            key: 'PERFECT ORDER CONTINUATION',
-                            isMatch: perfectOrderContinuationReady
-                        },
-                        {
-                            key: 'PULLBACK ENTRY',
-                            isMatch: pullbackEntryReady
-                        },
-                        {
-                            key: 'BREAKOUT EARLY',
-                            isMatch: breakoutEarlyReady
-                        },
-                        {
-                            key: 'PRE-BREAKOUT',
-                            isMatch: preBreakoutReady
-                        }
-                    ];
-
-                    const rawStage = stageCandidates.find(candidate => candidate.isMatch)?.key || null;
-
-                    const stageValidation = {
-                        'PRE-BREAKOUT': tightConvergence && !aboveAllThree && priceVsMA50 >= -1.5,
-                        'BREAKOUT EARLY': aboveAllThree && reclaimedMA20 && nearBreakoutMA50,
-                        'PULLBACK ENTRY': hasPerfectOrder && (nearMA20 || nearMA50) && priceVsMA50 >= -2.5,
-                        'PERFECT ORDER CONTINUATION': hasPerfectOrder && aboveAllThree && priceVsMA20 >= 0
-                    };
-
-                    const stage = rawStage && stageValidation[rawStage] ? rawStage : null;
-
-                    const stageMeta = {
-                        'PRE-BREAKOUT': {
-                            short: 'PB',
-                            color: 'indigo',
-                            icon: 'mdi-arrow-collapse-right',
-                            priority: 1
-                        },
-                        'BREAKOUT EARLY': {
-                            short: 'BE',
-                            color: 'deep-purple',
-                            icon: 'mdi-rocket-launch',
-                            priority: 2
-                        },
-                        'PULLBACK ENTRY': {
-                            short: 'PE',
-                            color: 'teal',
-                            icon: 'mdi-chart-bell-curve-cumulative',
-                            priority: 3
-                        },
-                        'PERFECT ORDER CONTINUATION': {
-                            short: 'PO',
-                            color: 'green',
-                            icon: 'mdi-trending-up',
-                            priority: 4
-                        }
-                    };
-
-                    const score = structureScore + entryScore;
-                    const isPotential =
-                        score >= 10 &&
-                        structureScore >= 4 &&
-                        entryScore >= 4 &&
-                        !!stage;
-
-                    const resolvedStage = isPotential ? stage : null;
-                    const meta = resolvedStage ? stageMeta[resolvedStage] : null;
-                    const badge = isPotential ? `${meta.short} · ${score}đ` : 'Loại';
-                    const label = isPotential ? `${resolvedStage} · ${score}đ` : `Chưa đạt · ${score}đ`;
-                    const color = isPotential ? meta.color : 'grey';
-                    const icon = isPotential ? meta.icon : 'mdi-filter-remove';
-                    const tooltip = [
-                        `<strong>${isPotential ? '🎯' : 'ℹ️'} ${label}</strong>`,
-                        `Structure score: ${structureScore}`,
-                        `Entry score: ${entryScore}`,
-                        `Total score: ${score}`,
-                        resolvedStage ? `Stage: ${resolvedStage}` : 'Stage: Chưa đủ điều kiện',
-                        matched.length ? `Khớp: ${matched.join(', ')}` : 'Khớp: Chưa có tín hiệu nổi bật',
-                        warnings.length ? `Loại trừ / rủi ro: ${warnings.join(', ')}` : 'Loại trừ / rủi ro: Không có tín hiệu xấu nổi bật'
-                    ].join('<br>');
-
-                    return {
-                        isPotential,
-                        score,
-                        structureScore,
-                        entryScore,
-                        stage: resolvedStage,
-                        stagePriority: meta?.priority ?? 0,
-                        matched,
-                        warnings,
-                        badge,
-                        label,
-                        color,
-                        icon,
-                        tooltip
-                    };
-                },
                 async loadData() {
                     this.loading = true;
                     this.errorSnackbar = false;
+                    const requestedExchange = this.selectedExchange;
 
                     try {
-                        const response = await fetch(`/api/symbols?exchange=${this.selectedExchange}`);
+                        const response = await fetch(`/api/symbols?exchange=${requestedExchange}`);
                         const result = await response.json();
 
                         if (result.success) {
+                            // Ignore a late response from a tab the user already left.
+                            if (requestedExchange !== this.selectedExchange) return false;
                             // Initialize analysis fields for each symbol to ensure reactivity
                             result.data.symbols = result.data.symbols.map(symbol => ({
                                 ...symbol,
                                 analyzing: false,
                                 analysis: null,
-                                analysisError: null,
-                                fetchingPrice: false,
                                 potentialSignal: null
                             }));
 
                             this.matrixData = result.data;
                             console.log(`✅ Loaded ${result.data.symbols.length} symbols`);
+                            return true;
                         } else {
                             throw new Error(result.error || 'Failed to load data');
                         }
@@ -1026,6 +652,7 @@
                         console.error('❌ Error loading data:', error);
                         this.errorMessage = 'Không thể tải dữ liệu: ' + error.message;
                         this.errorSnackbar = true;
+                        return false;
                     } finally {
                         this.loading = false;
                     }
@@ -1037,17 +664,18 @@
                         return;
                     }
 
-                    if (this.autoAnalyzing) {
-                        console.log('⚠️ Auto-analysis already running, skipping...');
-                        return;
-                    }
+                    this.cancelCurrentAnalysisJob();
 
+                    // Every invocation supersedes an older UI run. Only rows
+                    // without a successful analysis are submitted again.
+                    const runId = ++this.analysisRunId;
                     this.autoAnalyzing = true;
 
                     // Priority: VN30 first, then others
                     const vn30Symbols = this.matrixData.symbols.filter(s => s.isVN30);
                     const otherSymbols = this.matrixData.symbols.filter(s => !s.isVN30);
-                    const sortedSymbols = [...vn30Symbols, ...otherSymbols];
+                    const sortedSymbols = [...vn30Symbols, ...otherSymbols]
+                        .filter(item => !item.analysis);
 
                     this.analyzingProgress = {
                         completed: 0,
@@ -1055,62 +683,133 @@
                     };
 
                     console.log(`🚀 Auto-analyzing ${sortedSymbols.length} symbols (${vn30Symbols.length} VN30 priority)...`);
-                    console.log(`⏱️ Sequential mode: 2s delay between requests (~${Math.ceil(sortedSymbols.length * 2 / 60)} minutes total)`);
 
-                    // Process sequentially with delay
-                    await this.analyzeBatch(sortedSymbols);
+                    if (sortedSymbols.length === 0) {
+                        this.autoAnalyzing = false;
+                        return;
+                    }
 
-                    this.autoAnalyzing = false;
-                    console.log(`✅ Completed auto-analysis: ${this.analyzingProgress.completed}/${this.analyzingProgress.total}`);
-                },
+                    try {
+                        sortedSymbols.forEach(item => { item.analyzing = true; });
 
-                async analyzeBatch(symbols) {
-                    // Sequential processing with 1s delay to avoid rate limiting
-                    for (let i = 0; i < symbols.length; i++) {
-                        const item = symbols[i];
+                        const response = await fetch('/api/analysis-jobs', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ symbols: sortedSymbols.map(item => item.symbol) })
+                        });
+                        const result = await response.json();
 
-                        try {
-                            await this.analyzeSymbolSilent(item);
-                            this.analyzingProgress.completed++;
-                        } catch (err) {
-                            console.error(`❌ Error analyzing ${item.symbol}:`, err);
-                            this.analyzingProgress.completed++;
+                        if (!response.ok || !result.success) {
+                            throw new Error(result.error || 'Không thể khởi tạo hàng đợi phân tích');
                         }
 
-                        // Add 1s delay between requests (except for the last one)
-                        if (i < symbols.length - 1) {
-                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        if (runId !== this.analysisRunId) {
+                            await this.cancelAnalysisJob(result.data.id);
+                            return;
+                        }
+
+                        this.currentAnalysisJobId = result.data.id;
+                        await this.monitorAnalysisJob(result.data.id, runId);
+                    } catch (error) {
+                        if (runId === this.analysisRunId) {
+                            console.error('❌ Auto-analysis failed:', error);
+                            this.errorMessage = 'Không thể phân tích dữ liệu: ' + error.message;
+                            this.errorSnackbar = true;
+                        }
+                    } finally {
+                        if (runId === this.analysisRunId) {
+                            sortedSymbols.forEach(item => { item.analyzing = false; });
+                            this.autoAnalyzing = false;
+                            this.currentAnalysisJobId = null;
+                            console.log(`✅ Analysis queue stopped: ${this.analyzingProgress.completed}/${this.analyzingProgress.total}`);
                         }
                     }
                 },
 
-                async analyzeSymbolSilent(item) {
-                    if (item.analyzing || item.analysis) return; // Skip if already analyzing or analyzed
+                async monitorAnalysisJob(jobId, runId) {
+                    let consecutiveErrors = 0;
 
-                    item.analyzing = true;
-                    item.analysisError = null;
-
-                    try {
-                        const response = await fetch(`/api/analyze/${item.symbol}`);
-                        const result = await response.json();
-
-                        if (result.success) {
-                            const potentialSignal = this.evaluatePotentialSignal(result.data);
-                            Object.assign(item, {
-                                ...item,
-                                analysis: result.data,
-                                potentialSignal,
-                                analyzing: false,
-                                analysisError: null
-                            });
-                            console.log(`✅ [${this.analyzingProgress.completed + 1}/${this.analyzingProgress.total}] ${item.symbol}: ${potentialSignal?.label || 'Đã phân tích'}`);
-                        } else {
-                            item.analysisError = result.error || 'Analysis failed';
-                            item.analyzing = false;
+                    while (runId === this.analysisRunId && this.currentAnalysisJobId === jobId) {
+                        let job;
+                        try {
+                            job = await this.syncAnalysisJob(jobId, runId);
+                            if (job) consecutiveErrors = 0;
+                        } catch (error) {
+                            consecutiveErrors++;
+                            console.warn(`⚠️ Failed to poll analysis job (${consecutiveErrors}/5):`, error);
+                            if (consecutiveErrors >= 5) throw error;
                         }
-                    } catch (error) {
-                        item.analysisError = error.message;
+
+                        if (!job) {
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            continue;
+                        }
+                        if (['completed', 'cancelled', 'failed'].includes(job.status)) return;
+
+                        // Browser timers may pause here in a background tab;
+                        // the server-owned analysis job continues regardless.
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                },
+
+                async syncAnalysisJob(jobId = this.currentAnalysisJobId, runId = this.analysisRunId) {
+                    if (!jobId || this.analysisPollInFlight) return null;
+
+                    this.analysisPollInFlight = true;
+                    try {
+                        const response = await fetch(`/api/analysis-jobs/${jobId}`, { cache: 'no-store' });
+                        const result = await response.json();
+                        if (!response.ok || !result.success) {
+                            throw new Error(result.error || 'Không thể đọc tiến độ phân tích');
+                        }
+
+                        if (runId !== this.analysisRunId || jobId !== this.currentAnalysisJobId) return null;
+                        this.applyAnalysisJob(result.data);
+                        return result.data;
+                    } finally {
+                        this.analysisPollInFlight = false;
+                    }
+                },
+
+                applyAnalysisJob(job) {
+                    this.analyzingProgress = { completed: job.completed, total: job.total };
+                    const itemsBySymbol = new Map(
+                        (this.matrixData?.symbols || []).map(item => [item.symbol, item])
+                    );
+
+                    Object.entries(job.results || {}).forEach(([symbol, result]) => {
+                        const item = itemsBySymbol.get(symbol);
+                        if (!item) return;
+
                         item.analyzing = false;
+                        if (result.success) {
+                            item.analysis = result.data;
+                            item.potentialSignal = PotentialRanker.evaluatePotentialSignal(result.data);
+                        } else {
+                            console.error(`❌ ${symbol}: ${result.error || 'Analysis failed'}`);
+                        }
+                    });
+                },
+
+                cancelCurrentAnalysisJob() {
+                    const jobId = this.currentAnalysisJobId;
+                    this.currentAnalysisJobId = null;
+                    if (jobId) {
+                        this.cancelAnalysisJob(jobId).catch(error => {
+                            console.warn('⚠️ Failed to cancel superseded analysis job:', error);
+                        });
+                    }
+                },
+
+                async cancelAnalysisJob(jobId) {
+                    await fetch(`/api/analysis-jobs/${jobId}`, { method: 'DELETE' });
+                },
+
+                handleVisibilityChange() {
+                    if (!document.hidden && this.currentAnalysisJobId) {
+                        this.syncAnalysisJob().catch(error => {
+                            console.error('❌ Failed to refresh analysis progress:', error);
+                        });
                     }
                 }
             },

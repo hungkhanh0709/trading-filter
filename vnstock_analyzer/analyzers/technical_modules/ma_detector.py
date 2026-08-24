@@ -12,6 +12,8 @@ All functions are PURE - no side effects, easy to test.
 
 from vnstock_analyzer.core.constants import VN_COLORS, VN_ICONS
 
+RECENT_CROSS_LOOKBACK = 10
+
 
 def detect_convergence(df, perfect_order=False):
     """
@@ -60,9 +62,8 @@ def detect_convergence(df, perfect_order=False):
             'message': 'MA = 0'
         }
     
-    # Bandwidth % công thức mới
     convergence_pct = (max_ma - min_ma) / min_ma * 100
-    
+
     # Phân loại level
     if convergence_pct < 1.5:
         level = 'SUPER_TIGHT'
@@ -301,38 +302,56 @@ def detect_golden_cross(df):
         }
     
     crosses = []
-    latest = df.iloc[-1]
-    
-    if len(df) >= 2:
-        prev = df.iloc[-2]
-        
-        # MA10 x MA20 (Golden Cross ngắn hạn - 6 điểm)
-        if prev['MA10'] <= prev['MA20'] and latest['MA10'] > latest['MA20']:
-            crosses.append({
-                'type': 'MA10_MA20',
-                'label': 'Golden Cross ngắn hạn',
-                'score': 6,
-                'icon': '🟠'
-            })
-        
-        # MA20 x MA50 (Golden Cross UY TÍN - 10 điểm) - QUAN TRỌNG NHẤT
-        if prev['MA20'] <= prev['MA50'] and latest['MA20'] > latest['MA50']:
-            crosses.append({
-                'type': 'MA20_MA50',
-                'label': 'Golden Cross UY TÍN',
-                'score': 10,
-                'icon': '🏆'
-            })
+    recent_crosses = []
+    definitions = (
+        ('MA10', 'MA20', 'MA10_MA20', 'Golden Cross ngắn hạn', '🟠'),
+        ('MA20', 'MA50', 'MA20_MA50', 'Golden Cross UY TÍN', '🏆'),
+    )
+    first_position = max(1, len(df) - RECENT_CROSS_LOOKBACK)
+    for position in range(first_position, len(df)):
+        prev = df.iloc[position - 1]
+        current = df.iloc[position]
+        days_ago = len(df) - 1 - position
+        for fast, slow, cross_type, label, icon in definitions:
+            if prev[fast] <= prev[slow] and current[fast] > current[slow]:
+                event = {
+                    'type': cross_type,
+                    'label': label,
+                    'icon': icon,
+                    'days_ago': days_ago,
+                }
+                recent_crosses.append(event)
+                if days_ago == 0:
+                    crosses.append(event)
     
     # Tìm cross uy tín nhất
-    best_cross = None
-    if crosses:
-        best_cross = max(crosses, key=lambda x: x['score'])
+    best_cross = next(
+        (item for item in crosses if item['type'] == 'MA20_MA50'),
+        crosses[0] if crosses else None,
+    )
     
     # Tạo message
-    if not crosses:
+    if not crosses and recent_crosses:
+        recent_best = min(
+            recent_crosses,
+            key=lambda item: (
+                item['days_ago'],
+                0 if item['type'] == 'MA20_MA50' else 1,
+            ),
+        )
+        message = f"{recent_best['icon']} {recent_best['label']} cách đây {recent_best['days_ago']} phiên"
+        tooltip = (
+            f"<strong>⭐ {recent_best['label']}</strong><br>"
+            f"Loại: {recent_best['type']}<br>"
+            f"Xuất hiện: {recent_best['days_ago']} phiên trước<br>"
+        )
+        label = f"GC {recent_best['days_ago']}p"
+    elif not crosses:
         message = "Không có Golden Cross gần đây"
-        tooltip = "<strong>⭐ Golden Cross</strong><br>Không có Golden Cross trong 2 ngày gần đây"
+        tooltip = (
+            "<strong>⭐ Golden Cross</strong><br>"
+            f"Không có Golden Cross trong {RECENT_CROSS_LOOKBACK} phiên gần đây"
+        )
         label = "No GC"
     else:
         message = f"{best_cross['icon']} {best_cross['label']} vừa xảy ra!"
@@ -345,11 +364,13 @@ def detect_golden_cross(df):
     return {
         'crosses': crosses,
         'best_cross': best_cross,
+        'recent_crosses': recent_crosses,
         'has_cross': len(crosses) > 0,
+        'has_recent_cross': len(recent_crosses) > 0,
         'message': message,
         # UI metadata
         'icon': 'mdi-star-circle',
-        'color': 'amber' if best_cross else 'grey',
+        'color': 'amber' if recent_crosses else 'grey',
         'label': label,
         'tooltip': tooltip
     }
@@ -370,24 +391,18 @@ def detect_death_cross(df):
         dict: {
             'has_death_cross': bool,
             'crosses': list of dicts,
-            'strongest_cross': dict or None,
-            'price_below_ma': dict
+            'strongest_cross': dict or None
         }
     """
     if df is None or len(df) < 50:
         return {
             'has_death_cross': False,
             'crosses': [],
-            'strongest_cross': None,
-            'price_below_ma': {}
+            'strongest_cross': None
         }
     
     latest = df.iloc[-1]
-    price = latest['close']
     crosses = []
-    
-    # Kiểm tra Perfect Order trước
-    was_in_perfect_order = (latest['MA10'] > latest['MA20'] > latest['MA50'])
     
     if len(df) >= 2:
         prev = df.iloc[-2]
@@ -397,8 +412,7 @@ def detect_death_cross(df):
             crosses.append({
                 'type': 'MA20_MA50',
                 'label': 'Death Cross MA20/MA50',
-                'severity': 'CRITICAL',
-                'credibility_score': 10
+                'severity': 'CRITICAL'
             })
         
         # HIGH: MA10 cắt xuống MA20 (Death Cross ngắn hạn)
@@ -406,21 +420,11 @@ def detect_death_cross(df):
             crosses.append({
                 'type': 'MA10_MA20',
                 'label': 'Death Cross MA10/MA20',
-                'severity': 'HIGH',
-                'credibility_score': 6
+                'severity': 'HIGH'
             })
     
-    # Check price breaking below MA
-    price_below_ma = {
-        'below_ma10': price < latest['MA10'],
-        'below_ma20': price < latest['MA20'] and was_in_perfect_order,
-        'below_ma50': price < latest['MA50']
-    }
-    
     # Find strongest cross
-    strongest_cross = None
-    if crosses:
-        strongest_cross = max(crosses, key=lambda x: x['credibility_score'])
+    strongest_cross = crosses[0] if crosses else None
     
     has_death_cross = len(crosses) > 0
     
@@ -448,11 +452,9 @@ def detect_death_cross(df):
         'has_death_cross': has_death_cross,
         'crosses': crosses,
         'strongest_cross': strongest_cross,
-        'price_below_ma': price_below_ma,
         # UI metadata
         'icon': 'mdi-alert-circle',
         'color': color,
         'label': label,
         'tooltip': tooltip
     }
-

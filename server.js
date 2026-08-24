@@ -2,7 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { AnalysisJobManager } = require('./src/analysis-job-manager');
+const { PythonAnalysisWorker } = require('./src/python-analysis-worker');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,14 +22,21 @@ const VN30_FILE = path.join(__dirname, 'data', 'vn30.json');
 const VN100_FILE = path.join(__dirname, 'data', 'vn100.json');
 const HNX30_FILE = path.join(__dirname, 'data', 'hnx30.json');
 const PYTHON_VENV = path.join(__dirname, '.venv', 'bin', 'python');
-const FETCH_PRICES_SCRIPT = path.join(__dirname, 'scripts', 'fetch_prices.py');
-const ANALYZE_STOCK_SCRIPT = path.join(__dirname, 'scripts', 'analyze_stock.py');
+const ANALYSIS_WORKER_SCRIPT = path.join(__dirname, 'scripts', 'analysis_worker.py');
+const ANALYSIS_TIMEOUT_MS = Number(process.env.ANALYSIS_TIMEOUT_MS) || 120 * 1000;
+const ANALYSIS_JOB_DELAY_MS = Number(process.env.ANALYSIS_JOB_DELAY_MS) || 1000;
+const analysisWorker = new PythonAnalysisWorker({
+    pythonPath: PYTHON_VENV,
+    scriptPath: ANALYSIS_WORKER_SCRIPT,
+    timeoutMs: ANALYSIS_TIMEOUT_MS
+});
 
 // Analysis cache - 180 minutes TTL
-let analysisCache = {
+const analysisCache = {
     data: {},
     ttl: 180 * 60 * 1000
 };
+const inFlightAnalyses = new Map();
 
 // Middleware
 app.use(cors());
@@ -81,20 +89,10 @@ app.get('/api/symbols', async (req, res) => {
         // Get symbols
         const symbols = getSymbols(exchange);
 
-        // Calculate stats
-        const stats = {
-            total: symbols.length,
-            vn30: symbols.filter(s => s.isVN30).length,
-            vn100: symbols.filter(s => s.isVN100).length,
-            hnx30: symbols.filter(s => s.isHNX30).length,
-            inWatchlist: symbols.filter(s => s.inWatchlist).length
-        };
-
         res.json({
             success: true,
             data: {
-                symbols,
-                stats
+                symbols
             }
         });
     } catch (error) {
@@ -108,7 +106,7 @@ app.get('/api/symbols', async (req, res) => {
 
 /**
  * GET /api/analyze/:symbol
- * Analyze a single stock with caching (60min TTL)
+ * Analyze a single stock with caching (180-minute TTL)
  * 
  * Query params:
  *   - force: "1" to force refresh analysis
@@ -118,23 +116,7 @@ app.get('/api/analyze/:symbol', async (req, res) => {
         const symbol = req.params.symbol.toUpperCase();
         const forceRefresh = req.query.force === '1';
 
-        // Check cache
-        const now = Date.now();
-        if (!forceRefresh && analysisCache.data[symbol]) {
-            const cached = analysisCache.data[symbol];
-            if (now - cached.timestamp < analysisCache.ttl) {
-                console.log(`📦 Using cached analysis for ${symbol}`);
-                return res.json({
-                    success: true,
-                    data: cached.result,
-                    cached: true
-                });
-            }
-        }
-
-        // Analyze
-        console.log(`📊 Analyzing ${symbol}...`);
-        const result = await analyzeStock(symbol);
+        const { result, cached } = await getOrAnalyzeStock(symbol, forceRefresh);
 
         if (result.error) {
             return res.json({
@@ -144,16 +126,10 @@ app.get('/api/analyze/:symbol', async (req, res) => {
             });
         }
 
-        // Cache result
-        analysisCache.data[symbol] = {
-            result: result,
-            timestamp: now
-        };
-
         res.json({
             success: true,
             data: result,
-            cached: false
+            cached
         });
     } catch (error) {
         console.error(`❌ Error analyzing ${req.params.symbol}:`, error);
@@ -163,6 +139,77 @@ app.get('/api/analyze/:symbol', async (req, res) => {
         });
     }
 });
+
+const analysisJobs = new AnalysisJobManager({
+    analyze: async symbol => (await getOrAnalyzeStock(symbol)).result,
+    delayMs: ANALYSIS_JOB_DELAY_MS
+});
+
+app.post('/api/analysis-jobs', (req, res) => {
+    const requestedSymbols = Array.isArray(req.body?.symbols) ? req.body.symbols : [];
+    const symbols = [...new Set(
+        requestedSymbols
+            .filter(symbol => typeof symbol === 'string')
+            .map(symbol => symbol.trim().toUpperCase())
+            .filter(symbol => /^[A-Z0-9]{1,10}$/.test(symbol))
+    )];
+
+    if (symbols.length === 0) {
+        return res.status(400).json({ success: false, error: 'No valid symbols provided' });
+    }
+
+    const job = analysisJobs.create(symbols);
+    console.log(`🚀 Started analysis job ${job.id} for ${job.total} symbols`);
+    res.status(202).json({ success: true, data: job });
+});
+
+app.get('/api/analysis-jobs/:id', (req, res) => {
+    const job = analysisJobs.get(req.params.id);
+    if (!job) {
+        return res.status(404).json({ success: false, error: 'Analysis job not found' });
+    }
+    res.json({ success: true, data: job });
+});
+
+app.delete('/api/analysis-jobs/:id', (req, res) => {
+    const job = analysisJobs.cancel(req.params.id);
+    if (!job) {
+        return res.status(404).json({ success: false, error: 'Analysis job not found' });
+    }
+    res.json({ success: true, data: job });
+});
+
+async function getOrAnalyzeStock(symbol, forceRefresh = false) {
+    const now = Date.now();
+    const cached = analysisCache.data[symbol];
+
+    if (!forceRefresh && cached && now - cached.timestamp < analysisCache.ttl) {
+        console.log(`📦 Using cached analysis for ${symbol}`);
+        return { result: cached.result, cached: true };
+    }
+
+    if (!forceRefresh && inFlightAnalyses.has(symbol)) {
+        console.log(`🔄 Joining in-flight analysis for ${symbol}`);
+        return { result: await inFlightAnalyses.get(symbol), cached: false };
+    }
+
+    console.log(`📊 Analyzing ${symbol}...`);
+    const symbolMeta = getSymbols('ALL').find(item => item.symbol === symbol);
+    const promise = analyzeStock(symbol, symbolMeta?.exchange || 'HOSE');
+    inFlightAnalyses.set(symbol, promise);
+
+    try {
+        const result = await promise;
+        if (!result.error) {
+            analysisCache.data[symbol] = { result, timestamp: Date.now() };
+        }
+        return { result, cached: false };
+    } finally {
+        if (inFlightAnalyses.get(symbol) === promise) {
+            inFlightAnalyses.delete(symbol);
+        }
+    }
+}
 
 /**
  * Get symbols list based on exchange filter
@@ -254,117 +301,28 @@ function getSymbols(exchange) {
 }
 
 /**
- * Analyze a single stock using Python script
+ * Analyze a single stock using the persistent Python worker
  * 
  * @param {string} symbol - Stock symbol
  * @returns {Promise<Object>} Analysis result or error object
  */
-async function analyzeStock(symbol) {
-    return new Promise((resolve, reject) => {
-        const args = [ANALYZE_STOCK_SCRIPT, symbol];
-        const pythonProcess = spawn(PYTHON_VENV, args);
-
-        let stdout = '';
-        let stderr = '';
-
-        pythonProcess.stdout.on('data', (data) => {
-            stdout += data.toString();
-        });
-
-        pythonProcess.stderr.on('data', (data) => {
-            stderr += data.toString();
-            // Log progress (but filter out excessive logging)
-            const line = data.toString().trim();
-            if (line && !line.includes('⏳') && !line.includes('✅')) {
-                console.log(`  ${line}`);
-            }
-        });
-
-        pythonProcess.on('close', (code) => {
-            if (code !== 0) {
-                console.error(`❌ Analysis failed for ${symbol} with code ${code}`);
-                if (stderr) console.error('stderr:', stderr);
-                return resolve({
-                    symbol: symbol,
-                    error: `Analysis failed with exit code ${code}`
-                });
-            }
-
-            try {
-                // Parse JSON from stdout (try multiple strategies)
-                let result;
-                const trimmedStdout = stdout.trim();
-
-                // Strategy 1: Parse entire stdout as JSON
-                try {
-                    result = JSON.parse(trimmedStdout);
-                    resolve(result);
-                    return;
-                } catch (e) {
-                    // Continue to next strategy
-                }
-
-                // Strategy 2: Find JSON object in stdout (first '{' to last '}')
-                const firstBrace = trimmedStdout.indexOf('{');
-                const lastBrace = trimmedStdout.lastIndexOf('}');
-
-                if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-                    const jsonStr = trimmedStdout.substring(firstBrace, lastBrace + 1);
-                    try {
-                        result = JSON.parse(jsonStr);
-                        resolve(result);
-                        return;
-                    } catch (e) {
-                        // Continue to next strategy
-                    }
-                }
-
-                // Strategy 3: Parse line by line (fallback)
-                const lines = stdout.split('\n');
-                for (let i = lines.length - 1; i >= 0; i--) {
-                    const line = lines[i].trim();
-                    if (line.startsWith('{')) {
-                        try {
-                            result = JSON.parse(line);
-                            resolve(result);
-                            return;
-                        } catch (e) {
-                            // Continue to next line
-                        }
-                    }
-                }
-
-                // All parsing strategies failed
-                console.error(`❌ No valid JSON output for ${symbol}`);
-                console.error('stdout:', stdout);
-                resolve({
-                    symbol: symbol,
-                    error: 'No valid JSON output from analysis script'
-                });
-            } catch (error) {
-                console.error(`❌ Error parsing JSON for ${symbol}:`, error.message);
-                console.error('stdout:', stdout);
-                resolve({
-                    symbol: symbol,
-                    error: `Failed to parse JSON: ${error.message}`
-                });
-            }
-        });
-
-        pythonProcess.on('error', (error) => {
-            console.error(`❌ Failed to start analysis for ${symbol}:`, error);
-            reject(error);
-        });
-    });
+async function analyzeStock(symbol, exchange = 'HOSE') {
+    return analysisWorker.analyze(symbol, exchange);
 }
 
 // ==================== START SERVER ====================
 
-app.listen(PORT, () => {
-    console.log('━'.repeat(50));
-    console.log(`🚀 Server running at http://localhost:${PORT}`);
-    console.log(`📊 VN30 symbols loaded: ${vn30List.length}`);
-    console.log(`📊 HNX30 symbols loaded: ${hnx30List.length}`);
-    console.log(`📊 VN100 symbols loaded: ${vn100List.length}`);
-    console.log('━'.repeat(50));
-});
+console.log('⏳ Warming up persistent Python analysis worker...');
+analysisWorker.start()
+    .then(() => console.log('✅ Python analysis worker warmed up'))
+    .catch(error => console.warn(`⚠️ Python analysis worker warm-up failed: ${error.message}`))
+    .finally(() => {
+        app.listen(PORT, () => {
+            console.log('━'.repeat(50));
+            console.log(`🚀 Server running at http://localhost:${PORT}`);
+            console.log(`📊 VN30 symbols loaded: ${vn30List.length}`);
+            console.log(`📊 HNX30 symbols loaded: ${hnx30List.length}`);
+            console.log(`📊 VN100 symbols loaded: ${vn100List.length}`);
+            console.log('━'.repeat(50));
+        });
+    });

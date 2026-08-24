@@ -1,25 +1,7 @@
-"""
-VNStock Analyzer - Hệ thống phân tích và chấm điểm cổ phiếu Việt Nam
+"""EMA10/20/50 analysis for Vietnamese equities."""
 
-Package này cung cấp framework để phân tích đa chiều cổ phiếu:
-- Technical Analysis (25 điểm)
-- Fundamental Analysis (25 điểm)
-- Sentiment Analysis (20 điểm)
-- Liquidity Analysis (15 điểm)
-- Industry Analysis (15 điểm)
-
-Usage:
-    from vnstock_analyzer import StockScorer
-    
-    scorer = StockScorer('HDB')
-    result = scorer.analyze()
-"""
-
-# Apply patches for vnstock compatibility with pandas 3.x
-from . import vnstock_patch
-
-from .scorer import StockScorer
-from .utils import print_report, export_json
+from .stock_analyzer import StockAnalyzer
+from .utils import export_json
 
 __version__ = '1.0.0'
-__all__ = ['StockScorer', 'print_report', 'export_json']
+__all__ = ['StockAnalyzer', 'export_json']

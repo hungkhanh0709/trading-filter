@@ -1,23 +1,23 @@
-"""
-Stock Scorer - Main orchestrator for stock analysis
-"""
+"""Main orchestrator for factual stock analysis."""
 
 import sys
-from datetime import datetime
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
 
 from .core import DataFetcher
+from .core.price_normalizer import normalize_exchange, price_tick
 from .analyzers import (
     TechnicalAnalyzer,
 )
-from .utils import get_logger, LogLevel
+from .utils import get_logger
 
 
-class StockScorer:
-    """Main scoring engine - orchestrates all analyzers"""
+class StockAnalyzer:
+    """Orchestrate market-data loading and factual EMA analysis."""
     
-    def __init__(self, symbol, source='VCI'):
+    def __init__(self, symbol, source='VCI', exchange='HOSE'):
         """
-        Initialize stock scorer với safe initialization
+        Initialize the stock analyzer without fetching data eagerly.
         
         Args:
             symbol: Stock symbol (e.g., 'HDB', 'FPT')
@@ -25,7 +25,8 @@ class StockScorer:
         """
         self.symbol = symbol
         self.source = source
-        self.logger = get_logger(symbol, LogLevel.INFO)
+        self.exchange = normalize_exchange(exchange)
+        self.logger = get_logger(symbol)
         
         # Lazy initialization - không fetch data trong constructor
         # để tránh crash nếu network fail
@@ -36,7 +37,11 @@ class StockScorer:
         """Ensure fetcher is initialized"""
         if not self._initialized:
             try:
-                self.fetcher = DataFetcher(self.symbol, self.source)
+                self.fetcher = DataFetcher(
+                    self.symbol,
+                    self.source,
+                    exchange=self.exchange,
+                )
                 self._initialized = True
             except Exception as e:
                 self.logger.error(f"Failed to initialize data fetcher: {e}")
@@ -74,13 +79,23 @@ class StockScorer:
         
         # Get cached data
         df_history = self.fetcher.get_data('history')
-        df_ratio = self.fetcher.get_data('ratio')
         
         # Validate critical data
         if df_history is None or df_history.empty:
             self.logger.error("No price history available")
             return {
                 'error': 'Không có dữ liệu lịch sử giá',
+                'symbol': self.symbol,
+                'analyzed_at': datetime.now().isoformat()
+            }
+
+        # Base daily MA decisions on a completed candle. Providers can expose
+        # today's still-changing bar during the session, which otherwise makes
+        # Potential membership and volume confirmation flip intraday.
+        df_history = self._completed_daily_history(df_history)
+        if df_history.empty:
+            return {
+                'error': 'Không có phiên giao dịch đã hoàn tất',
                 'symbol': self.symbol,
                 'analyzed_at': datetime.now().isoformat()
             }
@@ -95,9 +110,7 @@ class StockScorer:
             # Extract MA analysis - FLATTENED STRUCTURE
             ma_analysis = tech_result.get('ma_analysis', {})
             
-            self.logger.success(f"Analysis complete", 
-                              status=ma_analysis.get('status'), 
-                              signal=tech_result.get('signal'))
+            self.logger.success("Analysis complete")
             
             # Extract price data from df_history (same data used in MA analysis)
             price_data = {}
@@ -112,6 +125,7 @@ class StockScorer:
                         'open': round(latest['open'], 2),
                         'high': round(latest['high'], 2),
                         'low': round(latest['low'], 2),
+                        'tickSize': price_tick(latest['close'], self.exchange),
                         'changePercent': round((latest['close'] - prev['close']) / prev['close'] * 100, 2) if prev['close'] > 0 else 0
                     }
                 }
@@ -120,6 +134,18 @@ class StockScorer:
             result = {
                 'symbol': self.symbol,
                 'analyzed_at': datetime.now().isoformat(),
+                'data_as_of': self._history_date(df_history.iloc[-1]),
+                'data_source': self.fetcher.active_source,
+                'data_exchange': self.exchange,
+                'price_normalization': (
+                    self.fetcher.get_data('price_normalization') or
+                    'EXCHANGE_TICK_HALF_UP'
+                ),
+                'data_price_mode': (
+                    self.fetcher.get_data('price_adjustment_status') or
+                    'SOURCE_ADJUSTMENT_UNKNOWN'
+                ),
+                'cash_dividend_adjustments': self.fetcher.get_data('price_adjustments') or [],
                 'perfect_order': ma_analysis.get('perfect_order', False),
                 
                 # Price data grouped as object
@@ -141,7 +167,6 @@ class StockScorer:
             
         except Exception as e:
             import traceback
-            import sys
             print("=" * 80, file=sys.stderr)
             print("FULL TRACEBACK:", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
@@ -153,3 +178,33 @@ class StockScorer:
                 'symbol': self.symbol,
                 'analyzed_at': datetime.now().isoformat()
             }
+
+    @staticmethod
+    def _history_date(row):
+        value = row.get('time') if hasattr(row, 'get') else None
+        if value is None:
+            return None
+        try:
+            return value.date().isoformat()
+        except AttributeError:
+            return str(value)[:10]
+
+    @staticmethod
+    def _completed_daily_history(df_history, now=None):
+        """Exclude today's unfinished daily candle before 15:00 Vietnam time."""
+        if df_history is None or df_history.empty or 'time' not in df_history.columns:
+            return df_history
+
+        vietnam_now = now or datetime.now(ZoneInfo('Asia/Ho_Chi_Minh'))
+        latest = df_history.iloc[-1]['time']
+        try:
+            latest_date = latest.date()
+        except AttributeError:
+            try:
+                latest_date = datetime.fromisoformat(str(latest)).date()
+            except ValueError:
+                return df_history
+
+        if latest_date == vietnam_now.date() and vietnam_now.time() < time(15, 0):
+            return df_history.iloc[:-1].copy()
+        return df_history

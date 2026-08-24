@@ -6,7 +6,7 @@ Import pure functions from modules:
 - ma_momentum: analyze_momentum
 - volume_analyzer: analyze_volume_trend, check_convergence_volume_signal
 
-Uses EMA (Exponential Moving Average) to match TradingView default.
+Uses three EMA lines (10/20/50) to match the TradingView script named TEMA.
 """
 
 from vnstock_analyzer.core.constants import VN_COLORS, VN_ICONS
@@ -22,7 +22,7 @@ from .volume_analyzer import analyze_volume_trend, check_convergence_volume_sign
 
 class MAAnalyzer:
     """
-    Main orchestrator for MA analysis - Simplified to ~200 lines
+    Main orchestrator for factual MA analysis.
     
     Hỗ trợ phương pháp đầu tư theo MA (KHÔNG dùng MA5 - quá ngắn hạn):
     - Perfect Order (MA10>MA20>MA50)
@@ -36,7 +36,7 @@ class MAAnalyzer:
         """
         Args:
             df: DataFrame đã tính sẵn các MA (MA10, MA20, MA50)
-            Note: Dùng EMA (Exponential MA) để match TradingView
+            Note: Dùng ba EMA 10/20/50 để match script TradingView tên TEMA
         """
         self.df = df
     
@@ -44,29 +44,10 @@ class MAAnalyzer:
         """
         Main analysis flow - Orchestrates all modules
         
-        Flow:
-        1. Run all detectors (convergence, expansion, golden_cross, death_cross, tight_convergence)
-        2. Run momentum analysis
-        3. Format factual signals for UI (NO ADVICE)
-        4. Calculate score from all signals
-        
-        Returns:
-            dict: {
-                'score': float (0-10),
-                'status': str,
-                'reasons': list,
-                'details': dict,
-                'ma_signals': list (factual signals only - NO advice)
-            }
+        Run the factual detectors consumed by the UI and Potential stars.
         """
         if self.df is None or len(self.df) < 50:
-            return {
-                'score': 0,
-                'status': 'NA',
-                'reasons': ['Không đủ dữ liệu'],
-                'details': {},
-                'ma_signals': []
-            }
+            return {}
         
         # === 1. RUN ALL DETECTORS ===
         expansion = detect_expansion(self.df)
@@ -74,7 +55,6 @@ class MAAnalyzer:
         # Check Perfect Order first (needed for convergence logic)
         latest = self.df.iloc[-1]
         perfect_order = (latest['MA10'] > latest['MA20'] > latest['MA50'])
-        
         convergence = detect_convergence(self.df, perfect_order=perfect_order)
         golden_cross = detect_golden_cross(self.df)
         death_cross = detect_death_cross(self.df)
@@ -89,20 +69,8 @@ class MAAnalyzer:
         # === 3. GET PRICE POSITION WITH UI METADATA ===
         price_position = self._get_price_position_with_ui()
         
-        # === 4. CALCULATE SCORE ===
-        score, status, reasons = self._calculate_score(
-            expansion, convergence, golden_cross,
-            death_cross, momentum
-        )
-        
-        # === 5. RETURN STRUCTURE (NO COLUMNS - UI builds from sections) ===
-        latest = self.df.iloc[-1]
-        perfect_order = (latest['MA10'] > latest['MA20'] > latest['MA50'])
-        
+        # === 4. RETURN FACTUAL STRUCTURE ===
         return {
-            'score': score,
-            'status': status,
-            'reasons': reasons,
             'perfect_order': perfect_order,
             
             # Flatten all MA data to top level
@@ -133,7 +101,9 @@ class MAAnalyzer:
             },
             'golden_cross': {
                 'has_cross': golden_cross.get('has_cross', False),
+                'has_recent_cross': golden_cross.get('has_recent_cross', False),
                 'crosses': golden_cross.get('crosses', []),
+                'recent_crosses': golden_cross.get('recent_crosses', []),
                 'message': golden_cross.get('message', ''),
                 # UI metadata
                 'icon': golden_cross.get('icon', 'mdi-star-circle'),
@@ -143,10 +113,6 @@ class MAAnalyzer:
             },
             'death_cross': {
                 'has_cross': death_cross.get('has_death_cross', False),
-                'crosses': death_cross.get('crosses', []),
-                'price_below_ma10': death_cross.get('price_below_ma', {}).get('below_ma10', False),
-                'price_below_ma20': death_cross.get('price_below_ma', {}).get('below_ma20', False),
-                'price_below_ma50': death_cross.get('price_below_ma', {}).get('below_ma50', False),
                 # UI metadata
                 'icon': death_cross.get('icon', 'mdi-alert-circle'),
                 'color': death_cross.get('color', 'grey'),
@@ -178,6 +144,13 @@ class MAAnalyzer:
                 'tooltip': momentum.get('tooltip', '')
             },
             'price_position': {
+                'close': round(price_position.get('close', 0), 4),
+                'ma10': round(price_position.get('ma10', 0), 4),
+                'ma20': round(price_position.get('ma20', 0), 4),
+                'ma50': round(price_position.get('ma50', 0), 4),
+                'ma_type': 'EMA',
+                'ma_source': 'close',
+                'ema_seed': 'SMA',
                 'vs_ma10': round(price_position.get('vs_ma10', 0), 2),
                 'vs_ma20': round(price_position.get('vs_ma20', 0), 2),
                 'vs_ma50': round(price_position.get('vs_ma50', 0), 2),
@@ -203,119 +176,6 @@ class MAAnalyzer:
                 'tooltip': volume_trend.get('tooltip', '')
             },
         }
-    
-    def _calculate_score(self, expansion, convergence, golden_cross,
-                         death_cross, momentum):
-        """
-        Calculate score from all signals
-        
-        Args:
-            expansion: Result from detect_expansion()
-            convergence: Result from detect_convergence()
-            golden_cross: Result from detect_golden_cross()
-            death_cross: Result from detect_death_cross()
-            momentum: Result from analyze_momentum()
-            
-        Returns:
-            tuple: (score, status, reasons)
-        """
-        latest = self.df.iloc[-1]
-        price = latest['close']
-        score = 0
-        reasons = []
-        
-        # === 1. PERFECT ORDER & MA EXPANSION ===
-        perfect_order = (latest['MA10'] > latest['MA20'] > latest['MA50'])
-        
-        if perfect_order:
-            if expansion['quality'] == 'STRONG':
-                score += 6
-                reasons.append(expansion['message'])
-            elif expansion['quality'] == 'MODERATE':
-                score += 5
-                reasons.append(expansion['message'])
-            else:
-                score += 3
-                reasons.append("✅ Perfect Order nhưng MA chưa xoè rõ")
-        elif (latest['MA10'] > latest['MA20']):
-            score += 2
-            reasons.append("➕ MA ngắn hạn tích cực (MA10>MA20)")
-        else:
-            reasons.append("⚠️ Chưa có Perfect Order")
-        
-        # === 2. VỊ TRÍ GIÁ SO VỚI MA ===
-        price_position = self._get_price_position()
-        dist_to_ma50 = price_position.get('vs_ma50', 0)
-        dist_to_ma20 = price_position.get('vs_ma20', 0)
-        dist_to_ma10 = price_position.get('vs_ma10', 0)
-        
-        if price > latest['MA50']:
-            score += 2
-            reasons.append(f"✅ Giá trên MA50 (+{dist_to_ma50:.1f}%)")
-        elif price > latest['MA20']:
-            score += 1
-            reasons.append(f"➕ Giá trên MA20 (+{dist_to_ma20:.1f}%)")
-        elif price > latest['MA10']:
-            score += 0.5
-            reasons.append(f"⚠️ Giá chỉ trên MA10 (+{dist_to_ma10:.1f}%)")
-        else:
-            reasons.append("❌ Giá dưới MA10")
-        
-        # === 3. GOLDEN CROSS ===
-        if golden_cross['best_cross']:
-            best = golden_cross['best_cross']
-            score += best['score'] * 0.3
-            reasons.append(golden_cross['message'])
-        
-        # === 4. MA CONVERGENCE ===
-        convergence_pct = convergence.get('convergence_pct', 100)
-        level = convergence.get('level', 'LOOSE')
-        
-        if level == 'SUPER_TIGHT':
-            score += 2
-            reasons.append(convergence['message'])
-        elif level == 'TIGHT':
-            score += 1
-            reasons.append(convergence['message'])
-        elif convergence['is_converging']:
-            reasons.append(convergence['message'])
-        
-        # === 6. DEATH CROSS (Factual - not advice) ===
-        if death_cross['has_death_cross']:
-            # Giảm điểm nếu có death cross
-            strongest = death_cross.get('strongest_cross', {})
-            severity = strongest.get('severity', 'LOW')
-            
-            if severity == 'CRITICAL':
-                score = max(0, score - 5)
-            elif severity == 'HIGH':
-                score = max(0, score - 3)
-            elif severity == 'MEDIUM':
-                score = max(0, score - 1)
-            
-            # Thêm thông tin factual vào reasons (NO advice)
-            cross_type = strongest.get('type', '')
-            reasons.append(f"⚠️ Death Cross: {cross_type} (Mức độ: {severity})")
-        
-        # === 7. MOMENTUM SUMMARY ===
-        if momentum['alignment'] in ['BULLISH_ALIGNED', 'MOSTLY_BULLISH']:
-            reasons.append(momentum['summary'])
-        
-        # === 8. FINALIZE SCORE & STATUS ===
-        final_score = min(score, 10)
-        
-        if final_score >= 9:
-            status = 'EXCELLENT'
-        elif final_score >= 7:
-            status = 'GOOD'
-        elif final_score >= 4:
-            status = 'ACCEPTABLE'
-        elif final_score >= 2:
-            status = 'WARNING'
-        else:
-            status = 'POOR'
-        
-        return final_score, status, reasons
     
     def _get_price_position_with_ui(self):
         """
@@ -373,8 +233,8 @@ class MAAnalyzer:
         total_range = high - low
         
         # Volume check (not abnormal spike)
-        if len(self.df) >= 20:
-            avg_volume = self.df.iloc[-20:]['volume'].mean()
+        if len(self.df) >= 21:
+            avg_volume = self.df.iloc[-21:-1]['volume'].mean()
             volume_ratio = volume / avg_volume if avg_volume > 0 else 1
             is_volume_ok = volume_ratio <= 2.5  # Not more than 2.5x average
         else:
@@ -466,10 +326,11 @@ class MAAnalyzer:
         
         # Build tooltip with wick signals
         tooltip = (
-            f"<strong>📍 Vị trí giá</strong><br>"
-            f"vs MA10: {dist_to_ma10:+.1f}%<br>"
-            f"vs MA20: {dist_to_ma20:+.1f}%<br>"
-            f"vs MA50: {dist_to_ma50:+.1f}%<br>"
+            f"<strong>📍 Giá & EMA (nghìn đồng)</strong><br>"
+            f"Close: {price:.1f}<br>"
+            f"EMA10: {ma10:.1f} ({dist_to_ma10:+.1f}%)<br>"
+            f"EMA20: {ma20:.1f} ({dist_to_ma20:+.1f}%)<br>"
+            f"EMA50: {ma50:.1f} ({dist_to_ma50:+.1f}%)<br>"
         )
         
         # Add wick rejection signals
@@ -478,6 +339,10 @@ class MAAnalyzer:
             tooltip += "<br>".join(wick_signals)
         
         return {
+            'close': price,
+            'ma10': ma10,
+            'ma20': ma20,
+            'ma50': ma50,
             'vs_ma50': dist_to_ma50,
             'vs_ma20': dist_to_ma20,
             'vs_ma10': dist_to_ma10,
@@ -487,35 +352,6 @@ class MAAnalyzer:
             'tooltip': tooltip
         }
     
-    def _get_price_position(self):
-        """
-        Get price position vs MA (extracted from old analyze())
-        
-        Returns:
-            dict: {
-                'vs_ma50': float,
-                'vs_ma20': float,
-                'vs_ma10': float
-            }
-        """
-        latest = self.df.iloc[-1]
-        price = latest['close']
-        ma50 = latest['MA50']
-        ma20 = latest['MA20']
-        ma10 = latest['MA10']
-        
-        if ma50 > 0:
-            dist_to_ma50 = (price - ma50) / ma50 * 100
-            dist_to_ma20 = (price - ma20) / ma20 * 100 if ma20 > 0 else 0
-            dist_to_ma10 = (price - ma10) / ma10 * 100 if ma10 > 0 else 0
-        else:
-            dist_to_ma50 = dist_to_ma20 = dist_to_ma10 = 0
-        
-        return {
-            'vs_ma50': dist_to_ma50,
-            'vs_ma20': dist_to_ma20,
-            'vs_ma10': dist_to_ma10
-        }    
     def _build_convergence_tooltip(self, convergence, convergence_volume_signal):
         """
         Build convergence tooltip with volume signal if available

@@ -5,6 +5,8 @@ Simplified to focus 100% on Moving Average analysis.
 All complexity removed - pure MA-based trading signals.
 """
 
+import pandas as pd
+
 from .technical_modules.ma_analyzer import MAAnalyzer
 
 
@@ -13,7 +15,7 @@ class TechnicalAnalyzer:
     MA-focused Technical Analyzer
     
     Delegates ALL analysis to MAAnalyzer for maximum accuracy.
-    Uses only Price + MA10 + MA20 + MA50 for trading decisions.
+    Uses only Price + EMA10 + EMA20 + EMA50 for trading decisions.
     """
     
     def __init__(self, df_history):
@@ -31,75 +33,39 @@ class TechnicalAnalyzer:
             self.ma_analyzer = MAAnalyzer(self.df)
         
     def _calculate_indicators(self):
-        """Calculate Moving Averages only - Use EMA to match TradingView"""
+        """Calculate close-based EMA with TradingView-compatible SMA seed."""
         if self.df is None or len(self.df) == 0:
             return
         
-        # Moving Averages - EMA (Exponential) for faster reaction
-        self.df['MA10'] = self.df['close'].ewm(span=10, adjust=False).mean()
-        self.df['MA20'] = self.df['close'].ewm(span=20, adjust=False).mean()
-        self.df['MA50'] = self.df['close'].ewm(span=50, adjust=False).mean()
-    
+        self.df['MA10'] = self._tradingview_ema(self.df['close'], 10)
+        self.df['MA20'] = self._tradingview_ema(self.df['close'], 20)
+        self.df['MA50'] = self._tradingview_ema(self.df['close'], 50)
+
+    @staticmethod
+    def _tradingview_ema(values, length):
+        """EMA seeded with the SMA of the first ``length`` valid closes."""
+        source = pd.to_numeric(values, errors='coerce')
+        result = pd.Series(float('nan'), index=source.index, dtype='float64')
+        valid_positions = [position for position, value in enumerate(source) if pd.notna(value)]
+        if len(valid_positions) < length:
+            return result
+
+        alpha = 2.0 / (length + 1.0)
+        seed_position = valid_positions[length - 1]
+        seed = source.iloc[valid_positions[:length]].mean()
+        result.iloc[seed_position] = seed
+        previous = seed
+        for position in range(seed_position + 1, len(source)):
+            current = source.iloc[position]
+            if pd.isna(current):
+                result.iloc[position] = previous
+                continue
+            previous = alpha * current + (1.0 - alpha) * previous
+            result.iloc[position] = previous
+        return result
+
     def get_analysis(self):
-        """
-        MA-focused analysis - Simple and powerful
-        
-        Returns:
-            dict: {
-                'status': str,
-                'signal': str,
-                'ma_analysis': dict (complete MA analysis),
-                'component_score': float
-            }
-        """
+        """Return the factual MA analysis consumed by the API."""
         if self.df is None or len(self.df) < 50:
-            return {
-                'status': 'NA',
-                'signal': 'HOLD',
-                'ma_analysis': {
-                    'status': 'NA',
-                    'score': 0,
-                    'reasons': ['Không đủ dữ liệu MA'],
-                    'details': {},
-                    'forecast': {}
-                },
-                'component_score': 0
-            }
-        
-        # Get MA analysis
-        ma_result = self.ma_analyzer.analyze()
-        
-        # Simple status mapping from MA score
-        ma_score = ma_result.get('score', 0)
-        if ma_score >= 9:
-            overall_status = 'EXCELLENT'
-        elif ma_score >= 7:
-            overall_status = 'GOOD'
-        elif ma_score >= 4:
-            overall_status = 'ACCEPTABLE'
-        elif ma_score >= 2:
-            overall_status = 'WARNING'
-        else:
-            overall_status = 'POOR'
-        
-        # Determine signal from MA forecast
-        forecast_scenario = ma_result.get('forecast', {}).get('scenario', {}).get('scenario', 'SIDEWAY')
-        
-        if forecast_scenario in ['STRONG_UPTREND', 'BREAKOUT_SOON']:
-            signal = 'STRONG_BUY'
-        elif forecast_scenario == 'UPTREND_CONSOLIDATION':
-            signal = 'BUY'
-        elif forecast_scenario in ['DOWNTREND_WARNING', 'STRONG_DOWNTREND']:
-            signal = 'SELL'
-        else:
-            signal = 'HOLD'
-        
-        # Component score from MA (0-1)
-        component_score = ma_score / 10.0
-        
-        return {
-            'status': overall_status,
-            'signal': signal,
-            'ma_analysis': ma_result,
-            'component_score': component_score
-        }
+            return {'ma_analysis': {}}
+        return {'ma_analysis': self.ma_analyzer.analyze()}

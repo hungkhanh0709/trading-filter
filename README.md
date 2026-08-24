@@ -1,22 +1,10 @@
-# 📊 Stock Filter - Watch List Tracker
+# Triple EMA Potential Monitor
 
-Web app đơn giản hiển thị danh sách mã cổ phiếu theo dõi, với đánh dấu VN30/VN100 và link TradingView.
+Ứng dụng quan sát cổ phiếu Việt Nam bằng giá và EMA10/20/50. Tab `POTENTIAL` hiển thị toàn bộ universe rồi xếp hạng bằng hệ sao cộng dồn; không lọc hoặc ẩn mã.
 
-## ✨ Tính năng
+## Khởi động
 
-- ✅ Hiển thị danh sách mã cổ phiếu theo ngày
-- ✅ Đánh dấu VN30/VN100 bằng icon
-- ✅ Link trực tiếp tới TradingView chart
-- ✅ Chọn ngày xem data lịch sử
-- ✅ UI Material Design hiện đại (Vuetify 3)
-- ✅ Tìm kiếm nhanh
-- ✅ Thống kê: tổng số mã, số mã VN30/VN100
-- ✅ Hỗ trợ cả HOSE và HNX
-- ✅ Watch List tùy chỉnh (thêm mã thủ công)
-
-## 🚀 Sử dụng
-
-### Khởi động
+Yêu cầu Python 3.10+ và Node.js.
 
 ```bash
 npm install
@@ -24,123 +12,58 @@ npm install
 npm start
 ```
 
-Mở trình duyệt: **http://localhost:3000**
+Mở `http://localhost:3000`.
 
-### Kiểm tra tích hợp Python
+## Potential
+
+Sáu tiêu chí, mỗi tiêu chí đúng cộng `1★`:
+
+1. Perfect Order: EMA10 > EMA20 > EMA50.
+2. Golden Cross EMA20/50 trong tối đa 5 phiên; EMA10/20 chỉ để quan sát.
+3. Bandwidth EMA10/20/50 không quá 1%.
+4. Perfect Order + pullback gần EMA10.
+5. Perfect Order + pullback đạt tầng EMA20.
+6. Perfect Order + pullback đạt tầng EMA50.
+
+Ba tầng pullback chỉ cộng sao khi đã có Perfect Order. Hệ thống chọn EMA gần giá nhất rồi cộng dồn theo tầng; đạt EMA50 nhận cả ba sao EMA10/20/50. Chi tiết ngưỡng và contract nằm trong [docs/potential.md](docs/potential.md).
+
+## Dữ liệu và API
+
+- `GET /api/symbols?exchange=POTENTIAL`: toàn bộ mã VN30, VN100, HNX30 và watch list, đã khử trùng lặp.
+- `GET /api/symbols?exchange=WATCHLIST|VN30|VN100|HNX30`: universe tương ứng.
+- `GET /api/analyze/:symbol`: giá đã chuẩn hoá bước giá và phân tích EMA.
+- `GET /api/analyze/:symbol?force=1`: bỏ qua cache phân tích trong bộ nhớ.
+- `POST /api/analysis-jobs`: khởi tạo hàng đợi phân tích chạy phía server, không bị dừng khi tab trình duyệt xuống nền.
+
+Mỗi mã có hard timeout mặc định 120 giây để một request bị treo không chặn toàn bộ hàng đợi. Có thể thay đổi bằng biến môi trường `ANALYSIS_TIMEOUT_MS`.
+
+Server dùng một Python worker lâu dài thay vì khởi động lại Python cho từng mã. Chi phí import pandas, khởi tạo `vnstock/vnai` và cache Matplotlib chỉ xảy ra một lần lúc `npm start`.
+
+Mỗi mã tải 250 phiên: đủ để phần ảnh hưởng của SMA seed lên EMA50 giảm xuống dưới 0,1%, đồng thời tránh payload dư thừa của cửa sổ 500 phiên.
+
+Mỗi lần gọi nguồn dữ liệu có timeout mặc định 8 giây (`VNSTOCK_REQUEST_TIMEOUT_SECONDS`). App gọi VCI một lần rồi chuyển sang KBS, tránh lớp retry 30 giây × 3 của `Quote.history` giữ cả hàng đợi quá lâu.
+
+Khi một nguồn lỗi network, worker tạm bỏ qua nguồn đó trong 5 phút (`VNSTOCK_SOURCE_COOLDOWN_SECONDS`) để các mã kế tiếp không lặp lại cùng một timeout.
+
+Watch list có dạng:
+
+```json
+{
+  "HOSE": "VCB,BID,CTG,TCB",
+  "HNX": "IDC,PVS"
+}
+```
+
+## Kiểm thử
 
 ```bash
+npm test
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-## 📝 Quản lý Watch List
+Source chính:
 
-### Thêm mã vào Watch List
-
-Chỉnh sửa file `data/watch-list.json`:
-
-```json
-[
-  {
-    "date": "20260201",
-    "HOSE": "ACB,BID,VTP,SAB,HPG,MBB,VCB",
-    "HNX": "IDC,PVS"
-  }
-]
-```
-
-**Lưu ý:**
-- Format ngày: `YYYYMMDD` (VD: `20260201`)
-- Mã HOSE và HNX tách riêng
-- Các mã cách nhau bằng dấu phẩy
-- File được sort theo ngày giảm dần (mới nhất trên cùng)
-
-### Tabs hiển thị
-
-- **Watch List**: Tất cả mã trong watch-list.json
-- **HOSE**: Chỉ mã sàn HOSE
-- **HNX**: Chỉ mã sàn HNX
-- **VN30**: 30 mã blue-chip HOSE
-- **VN100**: 100 mã lớn nhất HOSE
-
-## 📁 Cấu trúc Files
-
-```
-trading-filter/
-├── server.js              # Express backend
-├── package.json           
-├── data/
-│   ├── vn30.json         # Danh sách VN30 (reference)
-│   ├── vn100.json        # Danh sách VN100 (reference)
-│   └── watch-list.json   # Watch List - EDIT thủ công
-└── public/
-    └── index.html         # Vue 3 + Vuetify 3 UI
-```
-
-### File Purposes
-
-**`watch-list.json`** - Danh sách theo dõi:
-- ✅ SAFE to edit manually
-- ✅ Organized by date
-- ✅ Hỗ trợ cả HOSE và HNX
-- ✅ Có thể thêm mã ngoài VN30/VN100
-
-**`vn30.json` / `vn100.json`** - Reference lists:
-- ✅ Danh sách official VN30/VN100
-- ✅ Dùng để đánh dấu trong UI
-- ❌ Không cần edit thường xuyên
-
-## 🔧 API Endpoints
-
-### `GET /api/stocks?exchange=WATCHLIST`
-Trả về data Watch List
-
-### `GET /api/stocks?exchange=VN30`
-Trả về data VN30 với status từ watch-list.json
-
-### `GET /api/stocks?exchange=VN100`
-Trả về data VN100 với status từ watch-list.json
-
-### `GET /api/analyze/:symbol`
-Phân tích kỹ thuật cho một mã
-
-## 💡 Tips
-
-### Theo dõi mã mới:
-1. Mở `data/watch-list.json`
-2. Thêm mã vào HOSE hoặc HNX
-3. Save
-4. Refresh page
-5. Done! ✅
-
-### Xem lịch sử:
-- Matrix table hiển thị lịch sử nhiều ngày
-- Mỗi cột là một ngày
-- ✅ = có mặt, 🆕 = mới xuất hiện
-
-### Phân tích kỹ thuật:
-- Click icon 📊 "Phân tích tất cả"
-- Hoặc click "Phân tích" trên từng mã
-- Kết quả: MA analysis, convergence, momentum
-
-## 🎨 UI Features
-
-- **Stats cards:** Ngày, Tổng mã, VN30, VN100
-- **Matrix view:** Lịch sử nhiều ngày
-- **VN30/VN100 badges:** Đánh dấu rõ ràng
-- **TradingView link:** Xem chart trực tiếp
-- **Analysis:** Phân tích MA, convergence, momentum
-- **Search:** Tìm kiếm nhanh theo mã
-- **Responsive:** Mobile-friendly
-
-## 🔮 Future Features
-
-- [ ] Calendar view để duyệt lịch sử
-- [ ] So sánh giữa các ngày
-- [ ] Capture screenshot TradingView
-- [ ] Export Excel/PDF
-- [ ] Chart xu hướng xuất hiện của mã
-
----
-
-*Built with Node.js, Express, Vue 3, Vuetify 3*
-*Last updated: January 19, 2026*
+- `server.js`: API và cache.
+- `public/index.html`: Vue/Vuetify UI.
+- `public/potential-ranker.js`: tiêu chí sao và thứ tự hiển thị.
+- `vnstock_analyzer/`: lấy dữ liệu, chuẩn hoá bước giá và tính EMA.

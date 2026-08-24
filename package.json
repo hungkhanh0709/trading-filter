@@ -5,7 +5,9 @@
     "main": "server.js",
     "scripts": {
         "start": "node server.js",
-        "dev": "node server.js"
+        "dev": "node server.js",
+        "test": "node --test tests/*.test.js",
+        "git:prune-branches": "git fetch --prune && git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads | awk '$NF == \"[gone]\" { print $1 }' | while IFS= read -r branch; do git branch -d \"$branch\"; done"
     },
     "keywords": [
         "stock",
